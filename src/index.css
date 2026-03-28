@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+/* class 기반 다크모드 */
+@variant dark (&:is(.dark *));
+
+/* ── Base overrides ─────────────────────── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html { font-size: 13px; }
+
+body {
+  font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: theme(colors.slate.50);
+  color: theme(colors.slate.800);
+  line-height: 1.5;
+}
+
+/* 스크롤바 */
+* { scrollbar-width: thin; scrollbar-color: theme(colors.slate.200) transparent; }
+::-webkit-scrollbar        { width: 4px; height: 4px; }
+::-webkit-scrollbar-thumb  { background: theme(colors.slate.200); border-radius: 0; }
+
+/* 기본 포커스 링 제거 (컴포넌트에서 개별 처리) */
+:focus { outline: none; }
