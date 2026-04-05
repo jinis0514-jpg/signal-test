@@ -32,12 +32,12 @@ function fmtSmallPct(v) {
 function StatCell({ label, value, positive, negative }) {
   return (
     <div className="flex flex-col items-center py-2">
-      <span className="text-[11px] text-slate-400 dark:text-slate-600 uppercase tracking-wide mb-1">
+      <span className="text-[12px] text-slate-500 dark:text-slate-500 uppercase tracking-wide mb-1">
         {label}
       </span>
       <span
         className={cn(
-          'text-[13px] font-bold tabular-nums leading-none',
+          'text-[15px] font-bold tabular-nums leading-none',
           positive && 'text-emerald-600 dark:text-emerald-400',
           negative && 'text-red-500',
           !positive && !negative && 'text-slate-700 dark:text-slate-300',
@@ -160,12 +160,17 @@ function StrategyCard({
           {/* 1) 상단: 이름 + 핵심 배지 */}
           <div className="flex items-start justify-between gap-3 mb-3">
             <div className="min-w-0">
-              <p className="text-[14px] font-bold text-slate-900 dark:text-slate-100 leading-tight truncate">
+              <p className="text-[16px] font-bold text-slate-900 dark:text-slate-100 leading-tight truncate">
                 {strategy.name}
               </p>
-              <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-600 truncate">
+              <p className="mt-0.5 text-[12px] text-slate-500 dark:text-slate-500 truncate">
                 {strategy.author}
               </p>
+              {!isUserStrategy && Number(strategy.monthlyPriceKrw ?? strategy.monthly_price ?? 0) > 0 && (
+                <p className="mt-1 text-[13px] font-bold tabular-nums text-slate-800 dark:text-slate-100">
+                  월 {Number(strategy.monthlyPriceKrw ?? strategy.monthly_price).toLocaleString('ko-KR')}원
+                </p>
+              )}
             </div>
             <div className="flex items-center gap-1.5 flex-wrap justify-end flex-shrink-0">
               {isUserStrategy && <Badge variant="info">내 전략</Badge>}
@@ -188,7 +193,7 @@ function StrategyCard({
           {isMethod && (
             <div className={cn(
               'mb-3 rounded-lg border border-slate-100 dark:border-gray-800 bg-slate-50/60 dark:bg-gray-800/25 px-2.5 py-2',
-              isLocked && 'blur-[2px] select-none',
+              isLocked && 'opacity-50 select-none',
             )}>
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1 flex items-center gap-1">
                 <FileText size={11} />
@@ -208,11 +213,11 @@ function StrategyCard({
             <div className="flex items-stretch rounded-[8px] border border-slate-200 dark:border-gray-800 overflow-hidden">
               {/* ROI (강조) */}
               <div className="flex-1 min-w-0 px-3 py-2.5 bg-white dark:bg-gray-900">
-                <p className="text-[10px] font-bold text-slate-400 dark:text-slate-600 uppercase tracking-widest mb-1">
-                  수익률
+                <p className="text-[11px] font-bold text-slate-500 dark:text-slate-500 uppercase tracking-widest mb-1">
+                  누적 수익률
                 </p>
                 <p className={cn(
-                  'text-[20px] font-bold tabular-nums leading-none',
+                  'text-[22px] font-bold tabular-nums leading-none',
                   Number.isFinite(ret) ? (ret >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400') : 'text-slate-700 dark:text-slate-300',
                 )}>
                   {fmtReturn(ret)}
@@ -256,10 +261,10 @@ function StrategyCard({
             </div>
 
             {isLocked && (
-              <div className="absolute inset-0 z-10 rounded-lg bg-white/85 dark:bg-gray-900/85 backdrop-blur-[3px] flex flex-col items-center justify-center gap-1 px-3 text-center border border-slate-100/80 dark:border-gray-800/80">
+              <div className="absolute inset-0 z-10 rounded-lg bg-white/90 dark:bg-gray-900/90 flex flex-col items-center justify-center gap-1 px-3 text-center border border-slate-200/80 dark:border-gray-700/80">
                 <Lock size={18} className="text-slate-500 dark:text-slate-400 shrink-0" strokeWidth={1.8} aria-hidden />
-                <span className="text-[11px] font-bold text-slate-800 dark:text-slate-100">구독 필요</span>
-                <span className="text-[10px] text-slate-600 dark:text-slate-400 font-medium leading-snug">
+                <span className="text-[12px] font-bold text-slate-800 dark:text-slate-100">열람 제한</span>
+                <span className="text-[11px] text-slate-600 dark:text-slate-400 font-medium leading-snug">
                   {accessLockMessage}
                 </span>
               </div>
@@ -270,14 +275,14 @@ function StrategyCard({
           {!isMethod && (
             <div className={cn(
               'mt-2 flex items-center justify-between gap-2 flex-wrap',
-              isLocked && 'blur-[2.5px] select-none',
+              isLocked && 'opacity-60 select-none',
             )}>
               {/* 최근 7일 / 30일 */}
               <div className="flex items-center gap-2">
                 <div className="flex flex-col items-start">
-                  <span className="text-[9px] text-slate-400 uppercase tracking-wide leading-none mb-0.5">최근 7일</span>
+                  <span className="text-[10px] text-slate-500 uppercase tracking-wide leading-none mb-0.5">최근 7일</span>
                   <span className={cn(
-                    'text-[12px] font-bold tabular-nums leading-none',
+                    'text-[14px] font-bold tabular-nums leading-none',
                     Number.isFinite(recent7d) ? (recent7d >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400') : 'text-slate-400',
                   )}>
                     {Number.isFinite(recent7d) ? fmtSmallPct(recent7d) : '—'}
@@ -285,9 +290,9 @@ function StrategyCard({
                 </div>
                 <div className="w-px h-6 bg-slate-100 dark:bg-gray-800" />
                 <div className="flex flex-col items-start">
-                  <span className="text-[9px] text-slate-400 uppercase tracking-wide leading-none mb-0.5">최근 30일</span>
+                  <span className="text-[10px] text-slate-500 uppercase tracking-wide leading-none mb-0.5">최근 30일</span>
                   <span className={cn(
-                    'text-[12px] font-bold tabular-nums leading-none',
+                    'text-[14px] font-bold tabular-nums leading-none',
                     Number.isFinite(recent30d) ? (recent30d >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400') : 'text-slate-400',
                   )}>
                     {Number.isFinite(recent30d) ? fmtSmallPct(recent30d) : '—'}
@@ -306,7 +311,7 @@ function StrategyCard({
           {!isMethod && periodLabel && (
             <p className={cn(
               'mt-1.5 text-[10px] text-slate-400 font-mono tabular-nums',
-              isLocked && 'blur-[2.5px] select-none',
+              isLocked && 'opacity-60 select-none',
             )}>
               {periodLabel}
             </p>
@@ -314,7 +319,7 @@ function StrategyCard({
           {!isMethod && (
             <p className={cn(
               'mt-1 text-[11px] text-slate-500 dark:text-slate-500 leading-snug line-clamp-1',
-              isLocked && 'blur-[2.5px] select-none',
+              isLocked && 'opacity-60 select-none',
             )}>
               {String(strategy.fitSummary || strategy.strategy_summary || strategy.description || '').trim() || '—'}
             </p>
@@ -322,7 +327,7 @@ function StrategyCard({
           {showStrategyNarrative && narrative && (
             <p className={cn(
               'mt-1 text-[10px] text-slate-400 dark:text-slate-600 leading-snug line-clamp-1',
-              isLocked && 'blur-[2.5px] select-none',
+              isLocked && 'opacity-60 select-none',
             )}>
               {narrative}
             </p>
@@ -368,7 +373,7 @@ function StrategyCard({
             variant="secondary" size="sm"
             onClick={(e) => { e.stopPropagation(); onSimulate?.() }}
           >
-            {isMethod ? '연결 전략 실행' : '모의투자 시작'}
+            {isMethod ? '연결 전략 실행' : '시그널 보기'}
           </Button>
         ) : (
           <>
@@ -387,7 +392,7 @@ function StrategyCard({
                 size="sm"
                 onClick={(e) => { e.stopPropagation(); onSimulate() }}
               >
-                {isMethod ? '연결 전략 실행' : '모의투자 시작'}
+                {isMethod ? '연결 전략 실행' : '시그널 보기'}
               </Button>
             )}
             <span

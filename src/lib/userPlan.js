@@ -207,15 +207,15 @@ export const PLAN_MESSAGES = {
   validationLocked:
     '이 전략의 상세 검증·지표는 Starter(체험) 또는 Pro에서 볼 수 있습니다. 과거 수익은 보장되지 않으며 참고용입니다.',
   simulationLocked:
-    '실시간 모의투자·전체 시그널은 체험 또는 구독에서 이용할 수 있어요. (성과 지표는 누구나 확인 가능)',
+    '실시간 시그널·전체 타임라인은 체험 또는 구독에서 이용할 수 있습니다.',
   marketMoreStrategies:
-    '핵심 성과 지표는 그대로 확인할 수 있어요. 실시간 모의·전체 열람은 체험 또는 구독에서 이어가실 수 있습니다.',
+    '지표 열람은 계속 가능합니다. 실시간 시그널 전체는 체험·구독에서 이어집니다.',
   strategySubscribeRequired:
     '구독이 필요합니다. 플랜을 올리면 상세 지표·설명·실행까지 이어질 수 있어요.',
   marketSubmitProOnly:
-    '전략을 판매(마켓 등록)하려면 Pro(구독)가 필요합니다. 저장·편집은 무료로 가능합니다.',
+    '마켓 등록·판매는 Pro 이상에서 가능합니다.',
   marketSubmitFree:
-    '마켓 등록(검수 요청)은 Pro(구독) 플랜만 이용할 수 있습니다.',
+    '마켓 등록은 Pro 이상 플랜에서 이용할 수 있습니다.',
   marketPipelineCap: (n) =>
     `Pro 플랜은 최대 ${n}개 전략까지만 제출할 수 있습니다. 승인·반려 후 슬롯이 비면 다시 제출할 수 있습니다.`,
 }
@@ -291,7 +291,7 @@ export function navigateToSubscriptionSection(onNavigate) {
  */
 export const PLAN_COMPARISON_FEATURES = [
   { key: 'view', label: '전략 열람', free: '일부', starter: '확대', pro: '전체', premium: '전체' },
-  { key: 'sim', label: '모의투자', free: '제한', starter: '확대', pro: '전체', premium: '전체' },
+  { key: 'sim', label: '시그널', free: '제한', starter: '확대', pro: '전체', premium: '전체' },
   { key: 'val', label: '검증·지표', free: '제한', starter: '확대', pro: '전체', premium: '전체·심화' },
   { key: 'notif', label: '알림', free: '제한', starter: '확대', pro: '전체', premium: '전체·우선' },
   { key: 'sell', label: '마켓 제출', free: '불가', starter: '불가', pro: `최대 ${MARKET_PIPELINE_MAX_STRATEGIES}개`, premium: `최대 ${MARKET_PIPELINE_MAX_PREMIUM}개` },

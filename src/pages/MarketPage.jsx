@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
-import { LayoutGrid, List, Package, Trophy, Percent, Shield, GitCompare } from 'lucide-react'
+import { LayoutGrid, List, Package, Trophy, Percent, Shield } from 'lucide-react'
 import { cn } from '../lib/cn'
 import PageHeader            from '../components/ui/PageHeader'
 import Button                from '../components/ui/Button'
@@ -18,11 +18,7 @@ import { normalizeMarketStrategy, assignMarketBadges } from '../lib/marketStrate
 import { getApprovedStrategies } from '../lib/strategyService'
 import { mergeApprovedAndOperator } from '../lib/mergeMarketStrategies'
 import { getCachedPrice } from '../lib/priceCache'
-import { useMarketData } from '../hooks/useMarketData'
-import { runStrategy } from '../lib/runStrategy'
-import { buildCatalogStrategyEngineConfig } from '../lib/strategyEngine'
-import { STRATEGIES as CATALOG_STRATEGIES } from '../data/simulationMockData'
-import { isMarketLocked, PLAN_MESSAGES, canSubmitStrategyToMarket } from '../lib/userPlan'
+import { isMarketLocked } from '../lib/userPlan'
 import { formatUsd, formatKrw } from '../lib/priceFormat'
 function fmtPct(v) {
   const n = Number(v)
@@ -283,17 +279,6 @@ export default function MarketPage({
     }
   }, [strategies])
 
-  const { candles: marketBenchCandles } = useMarketData('BTCUSDT', '1h', { limit: 400, pollMs: 1500 })
-  const liveCatalogBench = useMemo(() => {
-    const s = CATALOG_STRATEGIES.find((x) => x.id === 'btc-trend')
-    if (!marketBenchCandles?.length || !s) return null
-    const cfg = buildCatalogStrategyEngineConfig(
-      { id: 'btc-trend', symbol: s.symbol, timeframe: s.timeframe },
-      { candles: marketBenchCandles },
-    )
-    return runStrategy(marketBenchCandles, null, { strategyConfig: cfg })
-  }, [marketBenchCandles])
-
   return (
     <div className="page-shell flex flex-col md:flex-row min-h-full">
 
@@ -317,20 +302,8 @@ export default function MarketPage({
 
       <div className="market-main flex-1 min-w-0 p-3 sm:p-4">
 
-        {!canSubmitStrategyToMarket(u) && (
-          <div className="mb-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-900/40 px-3 py-2.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <p className="text-[11px] text-slate-600 dark:text-slate-400 leading-snug">
-              {PLAN_MESSAGES.marketSubmitProOnly}
-            </p>
-            <Button variant="secondary" size="sm" type="button" onClick={() => onGoSubscription?.()}>
-              Pro · 플랜 안내
-            </Button>
-          </div>
-        )}
-
         <PageHeader
           title="전략 마켓"
-          description="구독·비교할 전략을 고르는 곳입니다. 필터로 후보를 줄이고, 카드에서 가격과 지표·최근 흐름을 확인한 뒤 결정하세요."
           action={
             <div className="flex items-center gap-2">
               <span className="text-[10px] text-slate-500 tabular-nums">
@@ -354,32 +327,6 @@ export default function MarketPage({
             </div>
           }
         />
-
-        {liveCatalogBench?.performance && (
-          <div className="mb-3 rounded-lg border border-blue-200/80 dark:border-blue-900/40 bg-blue-50/50 dark:bg-blue-950/20 px-3 py-2 text-[11px] text-slate-700 dark:text-slate-300">
-            <span className="font-semibold text-slate-900 dark:text-slate-100">BTC · 카탈로그 샘플 엔진 (실시간 캔들)</span>
-            <span className="ml-1 font-mono tabular-nums">
-              ROI {fmtPct(liveCatalogBench.performance.roi)}
-              {' · '}
-              MDD {Number(liveCatalogBench.performance.mdd).toFixed(1)}%
-              {' · '}
-              승률 {Number(liveCatalogBench.performance.winRate).toFixed(1)}%
-              {' · '}
-              거래 {liveCatalogBench.performance.tradeCount}건
-            </span>
-          </div>
-        )}
-
-        <div className="mb-4 rounded-lg border border-slate-200 dark:border-gray-700 bg-slate-50/50 dark:bg-gray-800/20 px-3 py-2.5 flex flex-col sm:flex-row sm:items-center gap-2">
-          <div className="flex items-center gap-2 text-slate-700 dark:text-slate-200">
-            <GitCompare size={16} strokeWidth={1.8} className="text-blue-600 dark:text-blue-400 shrink-0" />
-            <p className="text-[11px] leading-snug">
-              <span className="font-semibold text-slate-800 dark:text-slate-100">비교 후 선택</span>
-              {' '}
-              카드에서 최대 2개를 고르면 아래 표에서 핵심 지표를 나란히 볼 수 있습니다. 무료 플랜도 지표·최근 성과·상태는 카드에서 확인할 수 있습니다.
-            </p>
-          </div>
-        </div>
 
         {compareList.length > 0 && (
           <div className="mb-4 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-gray-900 px-3 py-2.5">

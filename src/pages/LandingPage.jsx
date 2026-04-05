@@ -21,56 +21,32 @@ function SectionShell({ id, className, children }) {
   )
 }
 
-/** Hero·하단 CTA — 무료 가입 / 마켓 / (선택) 요금제·가입+플랜 */
-function PrimaryCtaPair({ size = 'lg', showPlanCta = false, showSignupThenPlansLink = false }) {
+/** Hero·하단 CTA — 서비스 탐색 중심 (로그인 강제 없음) */
+function PrimaryCtaPair({ size = 'lg' }) {
   const navigate = useNavigate()
-  const goSignup = () => navigate('/auth?mode=signup')
+  const goExplore = () => navigate('/app/home')
   const goMarket = () => navigate('/app/market')
-  const goPlans = () => navigate('/app/plans')
-  const goSignupThenPlans = () => navigate('/auth?mode=signup&next=/app/plans')
 
   return (
-    <div className="flex flex-col items-center gap-3">
-      <div className="flex flex-col sm:flex-row flex-wrap justify-center gap-3 w-full">
-        <Button
-          variant="primary"
-          type="button"
-          size={size}
-          onClick={goSignup}
-          className="min-w-[200px] sm:min-w-[220px] h-11 sm:h-12 text-[15px] font-semibold shadow-sm"
-        >
-          무료로 시작하기
-        </Button>
-        <Button
-          variant="secondary"
-          type="button"
-          size={size}
-          onClick={goMarket}
-          className="min-w-[200px] sm:min-w-[220px] h-11 sm:h-12 text-[15px] font-semibold border-slate-200 dark:border-gray-600"
-        >
-          전략 보러가기
-        </Button>
-        {showPlanCta && (
-          <Button
-            variant="ghost"
-            type="button"
-            size={size}
-            onClick={goPlans}
-            className="min-w-[200px] sm:min-w-[220px] h-11 sm:h-12 text-[15px] font-semibold text-slate-700 dark:text-slate-200"
-          >
-            요금제 보기
-          </Button>
-        )}
-      </div>
-      {showSignupThenPlansLink && (
-        <button
-          type="button"
-          onClick={goSignupThenPlans}
-          className="text-[13px] font-semibold text-[#2962ff] dark:text-blue-400 hover:underline underline-offset-2"
-        >
-          가입 후 요금제 선택하기
-        </button>
-      )}
+    <div className="flex flex-col sm:flex-row flex-wrap justify-center gap-3 w-full max-w-lg mx-auto">
+      <Button
+        variant="primary"
+        type="button"
+        size={size}
+        onClick={goExplore}
+        className="min-w-[200px] sm:min-w-[220px] h-11 sm:h-12 text-[15px] font-semibold shadow-sm"
+      >
+        무료로 둘러보기
+      </Button>
+      <Button
+        variant="secondary"
+        type="button"
+        size={size}
+        onClick={goMarket}
+        className="min-w-[200px] sm:min-w-[220px] h-11 sm:h-12 text-[15px] font-semibold border-slate-200 dark:border-gray-600"
+      >
+        전략 보러가기
+      </Button>
     </div>
   )
 }
@@ -87,11 +63,8 @@ export default function LandingPage() {
     }
   }, [])
 
-  const goLogin = () => navigate('/auth?mode=login')
-
   return (
     <div className="min-h-screen bg-[#fafbfc] dark:bg-[#06080d] text-slate-800 dark:text-slate-100 flex flex-col">
-      {/* ── Header ── */}
       <header className="sticky top-0 z-50 border-b border-slate-200/80 dark:border-gray-800/90 bg-white/90 dark:bg-gray-950/90 backdrop-blur-md shrink-0">
         <div className="max-w-5xl mx-auto px-4 sm:px-5 h-14 flex items-center justify-between gap-3">
           <button
@@ -107,18 +80,26 @@ export default function LandingPage() {
               Quant Terminal
             </span>
           </button>
-          <button
-            type="button"
-            onClick={goLogin}
-            className="text-[13px] font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white px-3 py-2 rounded-lg transition-colors"
-          >
-            로그인
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => navigate('/auth?mode=login')}
+              className="text-[13px] font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white px-3 py-2 rounded-lg transition-colors"
+            >
+              로그인
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/auth?mode=signup')}
+              className="text-[13px] font-semibold rounded-lg px-3 py-2 bg-slate-900 text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white transition-colors"
+            >
+              회원가입
+            </button>
+          </div>
         </div>
       </header>
 
       <main>
-        {/* ── 1. Hero ── */}
         <SectionShell className="relative overflow-hidden border-b border-slate-200/60 dark:border-gray-800/80">
           <div
             className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_50%_-20%,rgba(41,98,255,0.14),transparent)] dark:bg-[radial-gradient(ellipse_80%_50%_at_50%_-20%,rgba(59,130,246,0.12),transparent)]"
@@ -129,15 +110,10 @@ export default function LandingPage() {
               검증 · 투명성 · 비교
             </p>
             <h1 className="text-[30px] sm:text-[38px] md:text-[42px] font-extrabold text-slate-900 dark:text-white leading-[1.12] tracking-tight max-w-3xl mx-auto">
-              검증된 코인 전략을 만들고,
-              <br className="hidden sm:block" />
-              {' '}
-              실행하고, 비교하세요
+              코인 전략의 성과를 같은 기준으로 비교하세요
             </h1>
-            <p className="mt-6 text-[15px] md:text-[16px] text-slate-600 dark:text-slate-400 max-w-2xl mx-auto leading-relaxed font-medium">
-              더 이상 출처 불명의 시그널에 의존하지 마세요.
-              <br className="hidden sm:block" />
-              모든 전략은 성과, 리스크, 거래 기록을 기반으로 공개됩니다.
+            <p className="mt-6 text-[16px] md:text-[17px] text-slate-600 dark:text-slate-400 max-w-2xl mx-auto leading-relaxed font-medium">
+              누적 수익·낙폭·거래 기록이 공개된 전략만 모았습니다. 시그널 흐름과 검증 화면까지 한 플랫폼에서 확인할 수 있습니다.
             </p>
             <div className="mt-10">
               <PrimaryCtaPair />
@@ -146,27 +122,22 @@ export default function LandingPage() {
         </SectionShell>
 
         <div className="max-w-5xl mx-auto px-4 sm:px-5 py-14 md:py-20 space-y-16 md:space-y-24">
-          {/* ── 2. 문제 정의 ── */}
           <SectionShell id="problem">
-            <div className="rounded-2xl border border-red-200/70 dark:border-red-900/35 bg-gradient-to-b from-red-50/90 to-white dark:from-red-950/25 dark:to-gray-950/40 px-6 py-8 md:px-10 md:py-10">
+            <div className="rounded-2xl border border-slate-200/90 dark:border-gray-800 bg-white dark:bg-gray-900/40 px-6 py-8 md:px-10 md:py-10">
               <h2 className="text-[20px] md:text-[22px] font-bold text-slate-900 dark:text-white mb-4">
-                텔레그램 시그널과는 다릅니다
+                왜 같은 숫자를 봐야 할까요
               </h2>
               <p className="text-[15px] md:text-[16px] text-slate-700 dark:text-slate-300 leading-relaxed font-medium mb-6">
-                지금 대부분의 코인 시그널은
-                <br className="sm:hidden" />
-                {' '}
-                성과도, 리스크도, 검증도 없이 공유됩니다.
+                전략을 고를 때는 출처보다 재현 가능한 지표가 우선입니다.
               </p>
               <ul className="space-y-3 text-[14px] md:text-[15px] text-slate-600 dark:text-slate-400">
                 {[
-                  '과거 기록 없음',
-                  '승률 / MDD 불명확',
-                  '근거 없는 진입',
-                  '결과 검증 불가능',
+                  '과거 구간·거래 수·승률이 분리되어 공개되는지',
+                  '최대 낙폭(MDD)과 수익률이 함께 제시되는지',
+                  '진입·청산 근거를 데이터로 추적할 수 있는지',
                 ].map((line) => (
                   <li key={line} className="flex items-start gap-3">
-                    <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-red-400 dark:bg-red-500 shrink-0" aria-hidden />
+                    <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-slate-400 dark:bg-slate-500 shrink-0" aria-hidden />
                     <span>{line}</span>
                   </li>
                 ))}
@@ -174,14 +145,13 @@ export default function LandingPage() {
             </div>
           </SectionShell>
 
-          {/* ── 3. 해결 방식 ── */}
           <SectionShell id="solution">
             <div className="text-center mb-8 md:mb-10">
               <h2 className="text-[20px] md:text-[24px] font-bold text-slate-900 dark:text-white">
-                모든 전략이 투명하게 공개됩니다
+                공개 지표로 선택을 좁힙니다
               </h2>
-              <p className="mt-3 text-[14px] md:text-[15px] text-slate-500 dark:text-slate-400 max-w-xl mx-auto">
-                숫자와 기록으로 비교할 수 있어야, 선택이 설명 가능해집니다.
+              <p className="mt-3 text-[15px] text-slate-500 dark:text-slate-400 max-w-xl mx-auto">
+                동일한 표준으로 정리된 숫자만 보여 드립니다.
               </p>
             </div>
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
@@ -202,16 +172,12 @@ export default function LandingPage() {
                   <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#2962ff]/10 dark:bg-blue-500/15">
                     <Icon className="text-[#2962ff] dark:text-blue-400" size={20} strokeWidth={2} aria-hidden />
                   </div>
-                  <span className="text-[14px] font-semibold text-slate-800 dark:text-slate-100">{label}</span>
+                  <span className="text-[15px] font-semibold text-slate-800 dark:text-slate-100">{label}</span>
                 </div>
               ))}
             </div>
-            <p className="mt-8 text-center text-[15px] font-semibold text-slate-800 dark:text-slate-200">
-              사용자는 직접 비교하고 선택합니다.
-            </p>
           </SectionShell>
 
-          {/* ── 4. 신뢰 요소 ── */}
           <SectionShell id="trust">
             <div className="rounded-2xl border border-slate-200 dark:border-gray-800 bg-white dark:bg-gray-900/40 px-6 py-8 md:px-10 md:py-10">
               <div className="flex flex-col sm:flex-row sm:items-start gap-4 mb-6">
@@ -220,19 +186,19 @@ export default function LandingPage() {
                 </div>
                 <div>
                   <h2 className="text-[20px] md:text-[22px] font-bold text-slate-900 dark:text-white">
-                    우리는 결과가 아닌 과정까지 공개합니다
+                    측정 방식을 가리지 않습니다
                   </h2>
-                  <p className="mt-2 text-[14px] text-slate-500 dark:text-slate-400">
-                    한눈에 보이는 지표 너머, 어떻게 측정·공개하는지까지 분리해 드립니다.
+                  <p className="mt-2 text-[15px] text-slate-500 dark:text-slate-400">
+                    백테스트와 실시간 추적을 구분하고, 동일 조건 비교가 가능하도록 설계했습니다.
                   </p>
                 </div>
               </div>
               <ul className="space-y-3.5 text-[14px] md:text-[15px] text-slate-700 dark:text-slate-300">
                 {[
-                  '백테스트 vs 실시간 성과 분리',
-                  '모든 거래 기록 공개',
-                  '전략 설명 PDF 제공',
-                  '동일 조건 비교 가능',
+                  '백테스트 구간·실시간 구간 분리 표기',
+                  '거래 로그·체결 순서 공개',
+                  '전략 설명 자료는 보조 정보로 제공',
+                  '전략 간 지표 단위 통일',
                 ].map((line) => (
                   <li key={line} className="flex items-start gap-3">
                     <CheckCircle2 className="text-emerald-500 dark:text-emerald-400 shrink-0 mt-0.5" size={18} aria-hidden />
@@ -243,31 +209,15 @@ export default function LandingPage() {
             </div>
           </SectionShell>
 
-          {/* ── 5. 사용 흐름 (3단계) ── */}
           <SectionShell id="flow">
             <h2 className="text-center text-[20px] md:text-[24px] font-bold text-slate-900 dark:text-white mb-10 md:mb-12">
               사용 흐름
             </h2>
             <div className="grid md:grid-cols-3 gap-6 md:gap-4">
               {[
-                {
-                  step: '1',
-                  title: '전략 이해',
-                  desc: '설명 + 데이터 확인',
-                  icon: FileText,
-                },
-                {
-                  step: '2',
-                  title: '실행',
-                  desc: '실시간 시그널 확인',
-                  icon: Radio,
-                },
-                {
-                  step: '3',
-                  title: '검증',
-                  desc: '과거 성과 + 거래 분석',
-                  icon: BarChart3,
-                },
+                { step: '1', title: '열람', desc: '지표·가격·상태 확인', icon: FileText },
+                { step: '2', title: '시그널', desc: '실시간 신호 흐름', icon: Radio },
+                { step: '3', title: '검증', desc: '기록·구간별 성과', icon: BarChart3 },
               ].map(({ step, title, desc, icon: Icon }, i) => (
                 <div
                   key={step}
@@ -283,25 +233,24 @@ export default function LandingPage() {
                   </span>
                   <div className="flex items-center gap-2 mb-2">
                     <Icon className="text-slate-500 dark:text-slate-400" size={18} strokeWidth={2} aria-hidden />
-                    <h3 className="text-[16px] font-bold text-slate-900 dark:text-white">{title}</h3>
+                    <h3 className="text-[17px] font-bold text-slate-900 dark:text-white">{title}</h3>
                   </div>
-                  <p className="text-[14px] text-slate-600 dark:text-slate-400 leading-snug">{desc}</p>
+                  <p className="text-[15px] text-slate-600 dark:text-slate-400 leading-snug">{desc}</p>
                 </div>
               ))}
             </div>
           </SectionShell>
 
-          {/* ── 6. CTA ── */}
           <SectionShell id="cta" className="pb-4">
             <div className="rounded-2xl border border-slate-200 dark:border-gray-800 bg-gradient-to-b from-slate-50 to-white dark:from-gray-900/80 dark:to-gray-950 px-6 py-12 md:py-14 text-center">
               <h2 className="text-[22px] md:text-[26px] font-bold text-slate-900 dark:text-white tracking-tight">
-                이제, 검증된 전략으로 시작하세요
+                지금 바로 둘러보기
               </h2>
-              <p className="mt-3 text-[14px] text-slate-500 dark:text-slate-400 max-w-md mx-auto">
-                가입 없이도 전략 마켓을 둘러볼 수 있습니다.
+              <p className="mt-3 text-[15px] text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+                로그인 없이 홈·마켓을 탐색할 수 있습니다.
               </p>
-              <div className="mt-9 space-y-3">
-                <PrimaryCtaPair size="lg" showPlanCta showSignupThenPlansLink />
+              <div className="mt-9">
+                <PrimaryCtaPair size="lg" />
               </div>
             </div>
           </SectionShell>
@@ -309,7 +258,7 @@ export default function LandingPage() {
       </main>
 
       <footer className="border-t border-slate-200 dark:border-gray-800 py-8 text-center shrink-0">
-        <p className="text-[12px] text-slate-500 dark:text-slate-500 max-w-md mx-auto px-4 leading-relaxed">
+        <p className="text-[13px] text-slate-500 dark:text-slate-500 max-w-md mx-auto px-4 leading-relaxed">
           Quant Terminal은 투자 자문이 아닙니다. 모든 수익·손실은 이용자 판단과 책임 하에 이루어집니다.
         </p>
       </footer>

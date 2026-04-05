@@ -126,7 +126,7 @@ function TableRow({ strategy, onDetail, user, onStartTrial, onSimulate, onGoSubs
           </div>
         ) : typeof onSimulate === 'function' ? (
           <Button variant={cta.variant} size="sm" onClick={() => onSimulate(strategy)}>
-            {isMethod ? '실행' : '모의투자'}
+            {isMethod ? '실행' : '시그널'}
           </Button>
         ) : (
           <span className="text-[10px] text-slate-400 tabular-nums">—</span>

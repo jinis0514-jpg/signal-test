@@ -5,7 +5,7 @@ import { getKrwPrice as getBithumbKrwPrice } from './bithumbService'
 /**
  * 통합 표시용 가격 (USD: Binance USDT, KRW: Upbit 우선 → 없으면 Bithumb)
  * @param {string} symbol 기준 자산 심볼 (예: BTC, ETH, ARB)
- * @returns {Promise<{ symbol: string, usdPrice: number, krwPrice: number|null, krwSource: 'upbit'|'bithumb'|null, changePercent: number }>}
+ * @returns {Promise<{ symbol: string, usdPrice: number, krwPrice: number|null, krwSource: 'upbit'|'bithumb'|null, changePercent: number, quoteVolume: number|null }>}
  */
 export async function getDisplayPrice(symbol) {
   const sym = String(symbol ?? '').trim().toUpperCase()
@@ -16,6 +16,7 @@ export async function getDisplayPrice(symbol) {
   const ticker = await get24hrTicker(sym)
   const usdPrice = ticker.price
   const changePercent = Number.isFinite(ticker.changePercent) ? ticker.changePercent : 0
+  const quoteVolume = Number.isFinite(ticker.quoteVolume) ? ticker.quoteVolume : null
 
   let krwPrice = null
   let krwSource = null
@@ -38,5 +39,6 @@ export async function getDisplayPrice(symbol) {
     krwPrice,
     krwSource,
     changePercent,
+    quoteVolume,
   }
 }

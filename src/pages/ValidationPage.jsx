@@ -567,8 +567,7 @@ export default function ValidationPage({
     <PageShell className="validation-page">
 
       <PageHeader
-        title="전략 해부"
-        description="수익 숫자만 보는 곳이 아니라, 백테스트와 거래 로그로 어디서 버티고 어디서 깨지는지 확인하는 페이지입니다."
+        title="검증"
         action={
           <div className="flex flex-wrap items-center justify-end gap-2">
             <div className="relative">

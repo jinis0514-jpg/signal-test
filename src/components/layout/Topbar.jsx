@@ -87,7 +87,7 @@ export default function Topbar({
               key={id}
               onClick={() => onNavigate(id)}
               className={[
-                'flex items-center gap-1.5 px-3 h-8 text-[12px] font-medium rounded-lg transition-colors whitespace-nowrap border',
+                'flex items-center gap-1.5 px-3 h-8 text-[13px] font-medium rounded-lg transition-colors whitespace-nowrap border',
                 isActive
                   ? 'bg-slate-100 text-slate-900 border-slate-200/80 dark:bg-gray-800 dark:text-slate-100 dark:border-gray-700'
                   : 'border-transparent text-slate-500 hover:bg-slate-50 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-gray-800/60 dark:hover:text-slate-200',
@@ -152,22 +152,6 @@ export default function Topbar({
           </button>
         </div>
 
-        <button
-          type="button"
-          onClick={onToggleAdmin}
-          className={[
-            'h-6 px-2 text-[10px] font-mono rounded-md border transition-[color,background-color,border-color] duration-[120ms] flex-shrink-0',
-            isAdmin
-              ? 'border-amber-400 text-amber-600 bg-amber-50 dark:border-amber-700 dark:text-amber-400 dark:bg-amber-950/30'
-              : 'border-slate-200 dark:border-gray-700 text-slate-400 hover:border-slate-400 hover:text-slate-600 dark:hover:border-gray-500',
-          ].join(' ')}
-          title={isAdmin ? '일반 유저로 전환' : '어드민 모드로 전환'}
-        >
-          {isAdmin ? 'Admin' : 'User'}
-        </button>
-
-        <div className="w-px h-4 bg-gray-200 dark:bg-gray-800 mx-1 sm:mx-2 flex-shrink-0" />
-
         {/* 로그인 / 회원가입 UI */}
         {onLogout && (
           <div className="flex items-center gap-1 sm:gap-1.5 mr-1 sm:mr-2">
@@ -224,21 +208,6 @@ export default function Topbar({
           <span className="text-[10px] text-red-500 mr-2 max-w-[240px] truncate" title={authError}>
             {authError}
           </span>
-        )}
-
-        {currentUser && user?.plan === 'free' && (
-          <button
-            type="button"
-            onClick={() => onNavigate?.('plans')}
-            className="
-              hidden sm:inline-flex items-center h-7 px-2.5 text-[11px] font-semibold rounded-lg flex-shrink-0
-              bg-slate-900 text-white hover:bg-slate-800
-              dark:bg-slate-100 dark:text-slate-900 dark:hover:bg-white
-              transition-colors
-            "
-          >
-            구독·체험
-          </button>
         )}
 
         {/* 프로필 + 플랜 상태 → 마이페이지 */}

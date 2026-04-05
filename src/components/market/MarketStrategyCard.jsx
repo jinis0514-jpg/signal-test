@@ -311,7 +311,7 @@ function MarketStrategyCard({
               onSimulate?.()
             }}
           >
-            {isMethod ? '연결 전략 실행' : '모의투자 시작'}
+            {isMethod ? '연결 전략 실행' : '시그널 보기'}
           </Button>
         ) : (
           <>
@@ -336,7 +336,7 @@ function MarketStrategyCard({
                   onSimulate()
                 }}
               >
-                {isMethod ? '연결 전략 실행' : '모의투자 시작'}
+                {isMethod ? '연결 전략 실행' : '시그널 보기'}
               </Button>
             )}
             <span

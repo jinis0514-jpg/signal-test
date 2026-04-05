@@ -12,7 +12,6 @@ import CandlestickChart from '../components/simulation/CandlestickChart'
 import StrategyMarkerLegend from '../components/charts/StrategyMarkerLegend'
 import SignalReasonPanel from '../components/charts/SignalReasonPanel'
 import { ChartSkeleton } from '../components/ui/Skeleton'
-import SignalList   from '../components/simulation/SignalList'
 import { cn }       from '../lib/cn'
 import {
   STRATEGIES,
@@ -97,6 +96,8 @@ const TIMEFRAME_TO_KLINES_INTERVAL = {
 }
 
 const CHART_TF_OPTIONS = [
+  { value: '1m',  label: '1m'  },
+  { value: '5m',  label: '5m'  },
   { value: '15m', label: '15m' },
   { value: '1h',  label: '1h'  },
   { value: '4h',  label: '4h'  },
@@ -212,12 +213,12 @@ const SignalRow = memo(function SignalRow({
         <div className="flex items-center gap-1.5 mb-1.5">
           <ColorDot color={color} />
           <span className={cn(
-            'text-[11px] font-semibold truncate flex-1 leading-tight',
+            'text-[13px] font-semibold truncate flex-1 leading-tight',
             isActive ? 'text-slate-900 dark:text-slate-100' : 'text-slate-600 dark:text-slate-400',
           )}>
             {strategy.name}
           </span>
-          {isLocked && <Lock size={9} className="text-slate-300 dark:text-slate-600 flex-shrink-0" />}
+          {isLocked && <Lock size={11} className="text-slate-300 dark:text-slate-600 flex-shrink-0" />}
         </div>
 
         {/* 현재 상태 + PnL */}
@@ -227,7 +228,7 @@ const SignalRow = memo(function SignalRow({
           </Badge>
           {openPnlPct != null && openPosType && (
             <span className={cn(
-              'text-[10px] font-semibold tabular-nums tracking-tight',
+              'text-[12px] font-semibold tabular-nums tracking-tight',
               pnlClass(openPnlPct),
             )}>
               {openPnlPct >= 0 ? '+' : ''}{openPnlPct}%
@@ -237,7 +238,7 @@ const SignalRow = memo(function SignalRow({
 
         {recent7d != null && Number.isFinite(recent7d) && (
           <p className={cn(
-            'text-[9px] font-medium tabular-nums mb-1',
+            'text-[11px] font-medium tabular-nums mb-1',
             recent7d >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500',
           )}>
             지난 7일 누적 {recent7d >= 0 ? '+' : ''}{recent7d.toFixed(1)}%
@@ -248,7 +249,7 @@ const SignalRow = memo(function SignalRow({
         {rationale.length > 0 && isActive && (
           <div className="space-y-0.5 mb-2">
             {rationale.slice(0, 2).map((r, i) => (
-              <p key={i} className="text-[9px] text-slate-500 dark:text-slate-500 truncate leading-snug">
+              <p key={i} className="text-[11px] text-slate-500 dark:text-slate-500 truncate leading-snug">
                 · {r.label}
               </p>
             ))}
@@ -489,71 +490,6 @@ function EntryRationalePanel({ notes, strength, openPos, slTpDisplay, pnlPrice, 
   )
 }
 
-/** 최근 거래 행 */
-const RecentTradeRow = memo(function RecentTradeRow({ trade, isLast }) {
-  const pnlPos = trade.pnl >= 0
-  return (
-    <div className={cn(
-      'flex items-center gap-3 px-3.5 py-2',
-      !isLast && 'border-b border-slate-100 dark:border-gray-800',
-    )}>
-      <Badge variant={dirVariant(trade.dir)}>{posLabelKo(trade.dir)}</Badge>
-      <span className="text-[10px] font-mono text-slate-500 tabular-nums">
-        {trade.entry.toLocaleString()}
-      </span>
-      <span className="text-[9px] text-slate-300 dark:text-slate-700">→</span>
-      <span className="text-[10px] font-mono text-slate-700 dark:text-slate-300 tabular-nums">
-        {trade.exit.toLocaleString()}
-      </span>
-      <div className="flex-1" />
-      <span className={cn(
-        'text-[11px] font-bold font-mono tabular-nums',
-        pnlPos ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500',
-      )}>
-        {pnlPos ? '+' : ''}{trade.pnl}%
-      </span>
-      <span className={cn('text-[10px] font-bold', trade.win ? 'text-emerald-500 dark:text-emerald-400' : 'text-red-400')}>
-        {trade.win ? '✓' : '✗'}
-      </span>
-    </div>
-  )
-}, (a, b) => a.isLast === b.isLast && a.trade.entry === b.trade.entry && a.trade.exit === b.trade.exit
-  && a.trade.pnl === b.trade.pnl && a.trade.dir === b.trade.dir && a.trade.win === b.trade.win)
-
-/** 성과 스냅샷 KPI (숫자 영역만 갱신되도록 분리) */
-const SignalPerfKpi = memo(function SignalPerfKpi({ trades, closedPerf, lastTrade }) {
-  const n = trades?.length ?? 0
-  const winPct = (() => {
-    if (!n) return '—'
-    const w = trades.filter((t) => !!t.win).length
-    return `${Math.round((w / n) * 100)}%`
-  })()
-  const lastPnl = lastTrade?.pnl
-  return (
-    <div className="grid grid-cols-3 gap-2">
-      <div className="rounded-lg border border-slate-100 dark:border-gray-800 px-3 py-2.5">
-        <p className="text-[10px] text-slate-500 mb-0.5">완료된 거래 수</p>
-        <p className="text-[15px] font-bold text-slate-900 dark:text-slate-100 tabular-nums">{n.toLocaleString()}</p>
-      </div>
-      <div className="rounded-lg border border-slate-100 dark:border-gray-800 px-3 py-2.5">
-        <p className="text-[10px] text-slate-500 mb-0.5">이기는 비율</p>
-        <p className="text-[15px] font-bold text-slate-900 dark:text-slate-100 tabular-nums">{winPct}</p>
-      </div>
-      <div className="rounded-lg border border-slate-100 dark:border-gray-800 px-3 py-2.5">
-        <p className="text-[10px] text-slate-500 mb-0.5">마지막 한 번 손익</p>
-        <p className={cn(
-          'text-[15px] font-bold tabular-nums',
-          lastPnl != null ? (lastPnl >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500') : 'text-slate-900 dark:text-slate-100',
-        )}
-        >
-          {lastPnl != null ? `${lastPnl >= 0 ? '+' : ''}${lastPnl}%` : '—'}
-        </p>
-      </div>
-    </div>
-  )
-}, (a, b) => a.trades === b.trades && a.closedPerf?.roi === b.closedPerf?.roi
-  && a.lastTrade?.pnl === b.lastTrade?.pnl && a.lastTrade?.entry === b.lastTrade?.entry)
-
 /* ── Main Component ──────────────────────── */
 export default function SignalPage({
   initialStrategyId,
@@ -750,7 +686,6 @@ export default function SignalPage({
 
   const allSignals = dynamicSignals
   const signals = signalLimit === Infinity ? allSignals : allSignals.slice(0, signalLimit)
-  const hiddenCount = allSignals.length - signals.length
 
   const openPos = useMemo(
     () => calculateOpenPosition(engineSignals, pnlPrice || (enginePrices.at(-1)?.price ?? 0)),
@@ -774,9 +709,7 @@ export default function SignalPage({
     return { sl, tp, slPct: stopPct, tpPct }
   }, [openPos, riskEngine])
 
-  const lastTrade = useMemo(() => trades?.length > 0 ? trades[trades.length - 1] : null, [trades])
   const closedPerf = engineResult.performance
-  const last5Trades = useMemo(() => trades?.length ? trades.slice(-5) : [], [trades])
 
   const riskAlerts = useMemo(
     () => buildRetentionRiskAlerts({ mdd: closedPerf.mdd, totalTrades: trades.length, recentTrades: trades }),
@@ -818,7 +751,6 @@ export default function SignalPage({
   }
 
   const displayName = userStrat?.name ?? strategy.name
-  const recentSignalsDisplay = useMemo(() => signals.slice(0, 10), [signals])
 
   /* ── 색상 맵 ─────────────────────────────── */
   const allListableStrategies = useMemo(() => [
@@ -1144,10 +1076,7 @@ export default function SignalPage({
   /* ── JSX ───────────────────────────────── */
   return (
     <PageShell wide className="min-w-0">
-      <PageHeader
-        title="실시간 전략 모니터"
-        description="왼쪽에서 전략을 고르고, 위 상태판에서 움직임을 확인한 뒤, 차트와 아래 근거로 왜 들어갔는지까지 이어서 봅니다. 색은 전략마다 고정입니다."
-      />
+      <PageHeader title="시그널" />
       {chartError && chartDataSource === 'fallback' && (
         <p className="mb-3 text-[12px] text-amber-800 dark:text-amber-200/90 rounded-lg border border-amber-200/80 dark:border-amber-900/50 bg-amber-50/90 dark:bg-amber-950/25 px-3 py-2">
           Binance 캔들을 불러오지 못해 참고용 데이터로 시뮬레이션합니다. 네트워크를 확인해 주세요.
@@ -1157,29 +1086,10 @@ export default function SignalPage({
       <div className="signal-page-layout">
 
         <aside className="signal-sidebar flex flex-col gap-2">
-          <div className="rounded-[8px] border border-slate-200 bg-white px-3 py-2.5 dark:border-gray-700 dark:bg-gray-900/50">
-            <div className="flex items-center justify-between gap-2 mb-0.5">
-              <p className="text-[12px] font-semibold text-slate-800 dark:text-slate-100">
-                구독 전략
-                <span className="font-normal text-slate-500 dark:text-slate-400">
-                  {' '}
-                  {Math.min(allListableStrategies.length, watchLimit)}/{watchLimit}
-                </span>
-              </p>
-              <span className="text-[10px] font-medium text-slate-500 tabular-nums">{planDisplayLabel(u)}</span>
-            </div>
-            <p className="text-[10px] text-slate-500 leading-snug">
-              상위 플랜일수록 더 많은 전략을 동시에 겹쳐 볼 수 있어요.
-            </p>
-          </div>
-
           {typeof onStrategyNotifySettingsChange === 'function' && (
             <div className="rounded-[8px] border border-slate-200 bg-white px-2.5 py-2 dark:border-gray-700 dark:bg-gray-900/50">
               <p className="text-[11px] font-semibold text-slate-800 dark:text-slate-100 mb-1.5">
                 전략별 알림
-              </p>
-              <p className="text-[9px] text-slate-500 dark:text-slate-400 mb-2 leading-snug">
-                시그널·인앱·OS 알림에 적용됩니다. 저장은 이 브라우저 계정 설정에 반영됩니다.
               </p>
               <div className="space-y-1.5 max-h-[min(40vh,280px)] overflow-y-auto pr-0.5">
                 {allListableStrategies.slice(0, watchLimit).map((s) => (
@@ -1222,33 +1132,16 @@ export default function SignalPage({
               <p className="text-[9px] text-slate-400 leading-snug">
                 +{allListableStrategies.length - watchLimit}개 더
               </p>
-              <p className="text-[8px] text-slate-300 dark:text-slate-600 mt-0.5">
-                구독 업그레이드 시 동시 관찰 확대
-              </p>
-              <button
-                type="button"
-                onClick={() => onNavigate?.('mypage')}
-                className="mt-1.5 text-[9px] text-blue-600 dark:text-blue-400 hover:underline font-semibold"
-              >
-                플랜 업그레이드
-              </button>
             </div>
           )}
-
-              <p className="text-[10px] text-slate-500 dark:text-slate-500 px-1 mt-1 leading-relaxed">
-                동시에 볼 수 있는 개수는 요금제에 따라 달라요. 업그레이드하면 더 많이 겹쳐 볼 수 있어요.
-              </p>
         </aside>
 
         <main className="signal-main space-y-5">
 
           <section className="signal-top-status" aria-labelledby="signal-active-heading">
-            <h2 id="signal-active-heading" className="text-[15px] font-semibold text-slate-900 dark:text-slate-100 mb-1">
-              지금 움직이는 포지션
+            <h2 id="signal-active-heading" className="text-[16px] font-semibold text-slate-900 dark:text-slate-100 mb-3">
+              포지션
             </h2>
-            <p className="text-[12px] text-slate-500 dark:text-slate-400 mb-3 leading-snug">
-              카드를 누르면 아래 차트와 선택 전략 설명이 바뀝니다. 색 점·마커·상태판이 모두 같은 전략을 가리킵니다.
-            </p>
             <ActiveSignalStatusBoard
               rows={monitorRows}
               selectedId={strategyId}
@@ -1379,7 +1272,7 @@ export default function SignalPage({
                   <StrategyMarkerLegend items={strategyLegendItems} />
                 )}
                 <div className="relative min-h-[240px] h-[min(360px,48vh)] sm:h-[min(440px,52vh)] sm:min-h-[300px] overflow-hidden rounded-[8px] border border-slate-100 bg-white dark:border-gray-800 dark:bg-gray-950/30">
-                <div className={cn('h-full relative', locked && 'blur-[1.5px] opacity-[0.55] pointer-events-none select-none')}>
+                <div className={cn('h-full relative', locked && 'opacity-[0.65] pointer-events-none select-none')}>
                   <SectionErrorBoundary title="차트를 불러오지 못했습니다" fallbackDescription="잠시 후 다시 시도하거나 새로고침해 주세요.">
                   {(() => {
                     const safeCandles = Array.isArray(chartCandles) ? chartCandles : []
@@ -1459,12 +1352,9 @@ export default function SignalPage({
           </section>
 
           <section className="signal-reason-section" aria-labelledby="signal-reason-heading">
-            <h2 id="signal-reason-heading" className="text-[15px] font-semibold text-slate-900 dark:text-slate-100 mb-1">
-              진입 근거 · 목표·손절 · 선택 전략 해석
+            <h2 id="signal-reason-heading" className="text-[16px] font-semibold text-slate-900 dark:text-slate-100 mb-3">
+              진입 근거
             </h2>
-            <p className="text-[12px] text-slate-500 dark:text-slate-400 mb-3 leading-snug">
-              멀티 전략이면 아래에 전략별로 겹친 근거가 그대로 표시됩니다. 선택한 전략({displayName})의 상세 해석은 그 아래에 이어집니다.
-            </p>
 
             <SignalReasonPanel
               items={signalReasonPanelItems}
@@ -1503,82 +1393,10 @@ export default function SignalPage({
             </div>
           </section>
 
-          {/* ── 4) 최근 시그널 리스트 ──────────── */}
-          <Card>
-            <Card.Header className="flex items-center justify-between">
-              <div>
-                <Card.Title>최근 일지</Card.Title>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">진입·청산이 일어난 순서대로 (최대 10건)</p>
-              </div>
-              <span className="text-[11px] text-slate-500 tabular-nums">{allSignals.length}건</span>
-            </Card.Header>
-            <div className="overflow-y-auto max-h-[220px]">
-              <SignalList signals={recentSignalsDisplay} />
-            </div>
-            {hiddenCount > 0 && (
-              <div className="border-t border-slate-100 dark:border-gray-800">
-                <div className="relative overflow-hidden">
-                  <div className="pointer-events-none select-none opacity-40" style={{ filter: 'blur(2px)' }}>
-                    <SignalList signals={allSignals.slice(signalLimit, Math.min(signalLimit + 2, allSignals.length))} />
-                  </div>
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 px-3 text-center bg-white/80 dark:bg-gray-900/80">
-                    <p className="text-[10px] text-slate-600 dark:text-slate-400 font-medium leading-snug">{UPSELL_COPY.signalTeaser}</p>
-                    <div className="flex flex-wrap items-center justify-center gap-2 mt-1">
-                      <Button variant="primary" size="sm" type="button" onClick={() => onSubscribe?.()}>{UPSELL_COPY.ctaSubscribe}</Button>
-                      <Button variant="secondary" size="sm" type="button" onClick={() => onStartTrial?.(strategyId)}>{UPSELL_COPY.ctaTrialShort}</Button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </Card>
-
-          {/* ── 5) 성과 요약 + 최근 거래 ────── */}
-          <Card>
-            <Card.Header className="flex items-center justify-between flex-wrap gap-2">
-              <div>
-                <Card.Title>이 전략 성과 스냅샷</Card.Title>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">지금 고른 시간봉으로 다시 계산한 추정치예요</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <Badge variant="default">누적 ROI {closedPerf.roi >= 0 ? '+' : ''}{closedPerf.roi}%</Badge>
-                {onNavigate && (
-                  <button
-                    type="button"
-                    onClick={() => onNavigate('validation')}
-                    className="flex items-center gap-1 text-[10px] text-blue-600 dark:text-blue-400 hover:underline font-semibold"
-                  >
-                    <BarChart2 size={11} />
-                    검증 보기
-                  </button>
-                )}
-              </div>
-            </Card.Header>
-            <Card.Content className="space-y-3 pb-3">
-              <SignalPerfKpi trades={trades} closedPerf={closedPerf} lastTrade={lastTrade} />
-
-              {/* 최근 5거래 */}
-              {last5Trades.length > 0 && (
-                <div>
-                  <p className="text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-2">직전 체결 5건</p>
-                  <div className="rounded-lg border border-slate-100 dark:border-gray-800 overflow-hidden">
-                    {last5Trades.map((t, i) => (
-                      <RecentTradeRow
-                        key={`tr-${t.entry}-${t.exit}-${t.dir}-${t.pnl}-${t.win ? 'w' : 'l'}`}
-                        trade={t}
-                        isLast={i === last5Trades.length - 1}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-            </Card.Content>
-          </Card>
-
           {/* 면책 */}
           {!locked && (
-            <p className="text-[10px] text-slate-500 dark:text-slate-600 leading-relaxed pb-6">
-              이 화면은 투자 권유가 아니라, 전략이 어떻게 움직였는지 보여 주는 참고용 모의 결과입니다. 실제 매매 판단과 손익은 본인 책임이에요.
+            <p className="text-[11px] text-slate-500 dark:text-slate-600 leading-relaxed pb-6">
+              참고용 시뮬레이션 결과이며 투자 권유가 아닙니다.
             </p>
           )}
 

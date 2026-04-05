@@ -200,7 +200,7 @@ const EXTRA = {
   s1:  { assetType: 'btc', holding: 'mid',   marketEnv: 'trend' },
   s2:  { assetType: 'btc', holding: 'short', marketEnv: 'range' },
   s3:  { assetType: 'btc', holding: 'short', marketEnv: 'trend' },
-  s4:  { assetType: 'eth', holding: 'short', marketEnv: 'range' },
+  s4:  { assetType: 'sol', holding: 'short', marketEnv: 'range' },
   s5:  { assetType: 'btc', holding: 'long',  marketEnv: 'trend' },
   s6:  { assetType: 'eth', holding: 'short', marketEnv: 'range' },
   s7:  { assetType: 'btc', holding: 'short', marketEnv: 'range' },
@@ -223,15 +223,12 @@ export const MARKET_STRATEGIES = STRATEGIES.map((s) => normalizeMarketStrategy({
 // 필터 / 정렬 옵션
 // ─────────────────────────────────────────
 export const TYPE_OPTIONS = [
-  { value: 'trend',          label: '추세 추종'  },
-  { value: 'range',          label: '횡보'       },
+  { value: 'trend',          label: '추세' },
+  { value: 'range',          label: '횡보' },
   { value: 'breakout',       label: '변동성 돌파' },
-  { value: 'mean_reversion', label: '평균회귀'   },
-  { value: 'grid',           label: '그리드'     },
-  { value: 'arbitrage',      label: '펀딩 차익'  },
-  { value: 'ai',             label: 'AI'         },
-  { value: 'seasonal',       label: '계절성'     },
-  { value: 'divergence',     label: '다이버전스'  },
+  { value: 'mean_reversion', label: '평균회귀' },
+  { value: 'seasonal',       label: '계절성' },
+  { value: 'divergence',     label: '다이버전스' },
 ]
 
 export const STATUS_OPTIONS = [
@@ -269,8 +266,9 @@ export const SORT_OPTIONS = [
 ]
 
 export const ASSET_OPTIONS = [
-  { value: 'btc', label: 'BTC'    },
-  { value: 'eth', label: 'ETH'    },
+  { value: 'btc', label: 'BTC' },
+  { value: 'eth', label: 'ETH' },
+  { value: 'sol', label: 'SOL' },
   { value: 'alt', label: '알트코인' },
 ]
 
@@ -297,6 +295,7 @@ export const DEFAULT_FILTERS = {
   winMin:    '',
   mddMax:    '',
   tradesMin: '',
+  priceMaxKrw: '',
   sort:      'recommend_desc',
 }
 
@@ -304,7 +303,7 @@ export const DEFAULT_FILTERS = {
 // 클라이언트 필터링 함수
 // ─────────────────────────────────────────
 export function applyMarketFilters(strategies, filters) {
-  const { search, types, recommend, assets, holdings, marketEnv, roiMin, recentRoiMin, winMin, mddMax, tradesMin, sort } = filters
+  const { search, types, recommend, assets, holdings, marketEnv, roiMin, recentRoiMin, winMin, mddMax, tradesMin, priceMaxKrw, sort } = filters
 
   const enriched = (strategies ?? []).map((s) => (
     s.recommendationScore != null && Number.isFinite(s.recommendationScore)
@@ -331,6 +330,8 @@ export function applyMarketFilters(strategies, filters) {
     if (winMin !== ''    && safeNum(s.winRate, 0) < Number(winMin))       return false
     if (mddMax !== ''    && mddVal > Number(mddMax))                      return false
     if (tradesMin !== '' && safeNum(tc, 0) < Number(tradesMin))           return false
+    const listPrice = safeNum(s.monthlyPriceKrw ?? s.monthly_price ?? 0, 0)
+    if (priceMaxKrw !== '' && listPrice > 0 && listPrice > Number(priceMaxKrw)) return false
     return true
   })
 

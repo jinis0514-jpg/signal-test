@@ -505,8 +505,6 @@ export default function EditorPage({
   const [codeAutoRunning, setCodeAutoRunning] = useState(false)
   const [codeAutoError, setCodeAutoError] = useState('')
   const [codeAutoErrorLine, setCodeAutoErrorLine] = useState(null)
-  const [gptCopyHint, setGptCopyHint] = useState('')
-
   const riskConfigMemo = useMemo(
     () => ({
       stopType,
@@ -1292,18 +1290,6 @@ export default function EditorPage({
     setSelected([])
     setCondParams({})
   }, [])
-
-  const handleCopyForGpt = useCallback(async () => {
-    const text = String(strategyCode ?? '')
-    try {
-      await navigator.clipboard.writeText(text)
-      setGptCopyHint('코드가 복사되었습니다. 새 탭에서 수정한 뒤 다시 붙여넣으세요.')
-      window.open('https://chatgpt.com', '_blank', 'noopener,noreferrer')
-    } catch {
-      setGptCopyHint('복사에 실패했습니다. 에디터에서 코드를 직접 선택해 복사해 주세요.')
-    }
-    window.setTimeout(() => setGptCopyHint(''), 6000)
-  }, [strategyCode])
 
   const conditionsForPreviewSummary = useMemo(() => {
     if (editorMode === 'code' && dslOrJsonPayload) {
@@ -2444,11 +2430,8 @@ export default function EditorPage({
             <Card className="editor-card-product flex flex-col border border-slate-200/90 dark:border-slate-700 min-h-0 rounded-[8px]">
               <div className="shrink-0 px-3 pt-3 pb-0">
                 <div className="rounded-[8px] border border-slate-200/90 dark:border-slate-600 bg-slate-50/80 dark:bg-slate-900/40 px-3 py-2.5">
-                  <p className="text-[11px] text-slate-700 dark:text-slate-300 leading-snug">
-                    <span className="font-semibold text-blue-800 dark:text-blue-300">ChatGPT · Claude · Gemini</span> 등에서 만든 전략 코드를 아래에 그대로 붙여넣으세요. 저장·새로고침 없이 오른쪽 결과가 따라갑니다.
-                  </p>
-                  <p className="text-[10px] text-slate-500 dark:text-slate-500 mt-1">
-                    문법 오류는 빨간 밑줄로, 실행 오류는 패널에 바로 표시됩니다.
+                  <p className="text-[12px] text-slate-700 dark:text-slate-300 leading-snug">
+                    외부 에디터에서 작성한 코드를 붙여넣을 수 있습니다. 오른쪽에서 결과가 갱신됩니다.
                   </p>
                   <div className="flex flex-wrap items-center gap-2 mt-2.5">
                     <Button
@@ -2462,13 +2445,7 @@ export default function EditorPage({
                     >
                       샘플 코드 삽입
                     </Button>
-                    <Button variant="ghost" size="sm" type="button" onClick={handleCopyForGpt}>
-                      이 코드 GPT에서 수정하기
-                    </Button>
                   </div>
-                  {gptCopyHint ? (
-                    <p className="text-[10px] text-blue-700 dark:text-blue-400 mt-2">{gptCopyHint}</p>
-                  ) : null}
                 </div>
               </div>
               <Card.Header className="flex flex-wrap items-center justify-between gap-2 shrink-0">

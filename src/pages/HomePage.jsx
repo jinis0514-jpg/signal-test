@@ -19,10 +19,10 @@ import { mergeApprovedAndOperator } from '../lib/mergeMarketStrategies'
 import { assignMarketBadges, normalizeMarketStrategy } from '../lib/marketStrategy'
 import { isSupabaseConfigured } from '../lib/supabase'
 import { HOME_WATCH_SYMBOLS } from '../lib/homeWatchlist'
-import { isMarketLocked, canViewPremiumStrategies, PLAN_MESSAGES } from '../lib/userPlan'
+import { isMarketLocked } from '../lib/userPlan'
+import { estimateStrategyDailyRoiPct } from '../lib/strategyDailyRoi'
 import { formatUsd, formatKrw } from '../lib/priceFormat'
 import { STRATEGIES } from '../data/simulationMockData'
-import { buildHomeRetentionStrip } from '../lib/retentionSnapshot'
 import { buildMarketBrief } from '../lib/marketBrief'
 import { deltaTextClass, deltaArrow } from '../lib/deltaDisplay'
 
@@ -96,7 +96,7 @@ function MarketPulse({ btcQuote, brief, showSkeleton }) {
     <div className="rounded-[8px] border border-slate-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-none">
       <div className="px-4 py-3 border-b border-slate-100 dark:border-gray-800 flex items-center gap-2">
         <Zap size={14} className="text-amber-500" />
-        <span className="text-[12px] font-bold text-slate-800 dark:text-slate-200 tracking-tight">지금 시장</span>
+        <span className="text-[14px] font-bold text-slate-800 dark:text-slate-200 tracking-tight">지금 시장</span>
         {brief?.updatedAt && (
           <span className="ml-auto text-[10px] text-slate-400">{brief.updatedAt}</span>
         )}
@@ -111,16 +111,16 @@ function MarketPulse({ btcQuote, brief, showSkeleton }) {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {/* BTC 현재 상태 */}
             <div>
-              <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-2">비트코인</p>
-              <div className={cn('inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[13px] font-bold', trendColors[trend.color])}>
+              <p className="text-[12px] font-medium text-slate-500 dark:text-slate-400 mb-2">비트코인</p>
+              <div className={cn('inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[14px] font-bold', trendColors[trend.color])}>
                 <span className="select-none" aria-hidden>{deltaArrow(changePct)}</span>
                 {trend.label}
               </div>
-              <p className="mt-2 text-[20px] font-bold font-mono tabular-nums text-slate-900 dark:text-slate-100">
+              <p className="mt-2 text-[24px] font-bold font-mono tabular-nums text-slate-900 dark:text-slate-100">
                 {formatUsd(btcQuote?.usdPrice)}
               </p>
               <p className={cn(
-                'mt-0.5 text-[12px] font-mono font-bold tabular-nums',
+                'mt-0.5 text-[14px] font-mono font-bold tabular-nums',
                 deltaTextClass(changePct),
               )}>
                 <span className="select-none mr-0.5" aria-hidden>{deltaArrow(changePct)}</span>
@@ -130,8 +130,8 @@ function MarketPulse({ btcQuote, brief, showSkeleton }) {
 
             {/* 변동성 */}
             <div>
-              <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mb-2">변동성</p>
-              <p className={cn('text-[18px] font-bold', volColors[volLabel.color])}>
+              <p className="text-[12px] font-medium text-slate-500 dark:text-slate-400 mb-2">변동성</p>
+              <p className={cn('text-[22px] font-bold', volColors[volLabel.color])}>
                 {volLabel.label}
               </p>
               <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
@@ -172,7 +172,7 @@ function GlobalIndicesBar({ indices, showSkeleton }) {
       <div className="px-4 py-2.5 border-b border-slate-100 dark:border-gray-800 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Globe size={13} className="text-[#2962ff]" />
-          <span className="text-[11px] font-bold text-slate-900 dark:text-slate-100 tracking-tight">해외 증시 · BTC</span>
+          <span className="text-[13px] font-bold text-slate-900 dark:text-slate-100 tracking-tight">해외 증시 · BTC</span>
         </div>
         <div className="flex items-center gap-1">
           <span className={cn(
@@ -192,10 +192,10 @@ function GlobalIndicesBar({ indices, showSkeleton }) {
           const pos = item.change >= 0
           return (
             <div key={item.label} className="px-4 py-3 text-center">
-              <p className="text-[10px] font-semibold text-slate-400 tracking-[0.06em] uppercase mb-1">{item.label}</p>
+              <p className="text-[11px] font-semibold text-slate-400 tracking-[0.06em] uppercase mb-1">{item.label}</p>
               <div className="flex items-center justify-center gap-0.5">
                 <span className={cn(
-                  'text-[14px] font-bold font-mono tabular-nums',
+                  'text-[16px] font-bold font-mono tabular-nums',
                   pos ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400',
                 )}>
                   <span className="select-none mr-0.5" aria-hidden>{deltaArrow(item.change)}</span>
@@ -228,9 +228,9 @@ const HeroAssetCell = memo(function HeroAssetCell({ sym, q }) {
       className="rounded-[8px] border border-slate-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-4 py-3.5 shadow-none"
     >
       <div className="flex items-center justify-between gap-2 mb-2">
-        <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-[0.06em]">{sym}/USDT</p>
+        <p className="text-[11px] font-semibold text-slate-500 uppercase tracking-[0.06em]">{sym}/USDT</p>
         <span className={cn(
-          'inline-flex items-center gap-0.5 text-[11px] font-mono font-bold tabular-nums',
+          'inline-flex items-center gap-0.5 text-[12px] font-mono font-bold tabular-nums',
           ch == null ? 'text-slate-400' : deltaTextClass(ch),
         )}>
           {ch != null && <span className="select-none" aria-hidden>{deltaArrow(ch)}</span>}
@@ -241,10 +241,10 @@ const HeroAssetCell = memo(function HeroAssetCell({ sym, q }) {
         <Skeleton className="h-8 w-36" />
       ) : (
         <>
-          <span className="text-[22px] font-bold font-mono text-slate-900 dark:text-slate-100 tabular-nums leading-none">
+          <span className="text-[26px] font-bold font-mono text-slate-900 dark:text-slate-100 tabular-nums leading-none">
             {formatUsd(q?.usdPrice)}
           </span>
-          <p className="mt-1.5 text-[11px] font-mono text-slate-400 tabular-nums">
+          <p className="mt-1.5 text-[12px] font-mono text-slate-400 tabular-nums">
             {q?.krwPrice != null ? formatKrw(q.krwPrice) : '—'}
           </p>
         </>
@@ -292,37 +292,68 @@ const WatchListItem = memo(function WatchListItem({ q }) {
   && prev.q.krwPrice === next.q.krwPrice
   && prev.q.changePercent === next.q.changePercent)
 
-function CoinPriceTable({ quotes, showSkeleton }) {
+const PRICE_TABS = [
+  { id: 'fav', label: '즐겨찾기' },
+  { id: 'vol', label: '거래량' },
+  { id: 'vola', label: '변동성' },
+  { id: 'price', label: '가격' },
+]
+
+function CoinPriceTable({
+  quotes,
+  showSkeleton,
+  tab,
+  onTabChange,
+}) {
   return (
     <Card>
       <Card.Header>
-        <div className="flex items-center justify-between">
-          <Card.Title>주요 시세</Card.Title>
-          <span className="text-[10px] text-slate-400">Binance USD · KRW (Upbit/Bithumb)</span>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <Card.Title className="text-[17px]">시세</Card.Title>
+          <span className="text-[12px] text-slate-500">Binance USDT 기준 · 표시 KRW는 참고</span>
+        </div>
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {PRICE_TABS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => onTabChange(t.id)}
+              className={cn(
+                'h-8 px-3 rounded-lg text-[12px] font-semibold border transition-colors',
+                tab === t.id
+                  ? 'border-slate-900 bg-slate-900 text-white dark:border-slate-100 dark:bg-slate-100 dark:text-slate-900'
+                  : 'border-slate-200 text-slate-600 hover:border-slate-300 dark:border-gray-700 dark:text-slate-400',
+              )}
+            >
+              {t.label}
+            </button>
+          ))}
         </div>
       </Card.Header>
-      <Card.Content className="p-0 overflow-x-auto">
-        <table className="w-full min-w-[480px] text-[12px]">
-          <thead>
-            <tr className="border-b border-slate-200/70 dark:border-gray-800">
-              <th className="text-left font-semibold text-slate-400 py-2 px-4 text-[10px] uppercase tracking-[0.06em]">심볼</th>
-              <th className="text-right font-semibold text-slate-400 py-2 px-4 text-[10px] uppercase tracking-[0.06em]">USD</th>
-              <th className="text-right font-semibold text-slate-400 py-2 px-4 text-[10px] uppercase tracking-[0.06em]">변동</th>
-              <th className="text-right font-semibold text-slate-400 py-2 px-4 text-[10px] uppercase tracking-[0.06em]">KRW</th>
-            </tr>
-          </thead>
-          <tbody>
-            {showSkeleton && quotes.length === 0
-              ? Array.from({ length: 8 }).map((_, i) => (
-                <tr key={i} className="border-b border-slate-100 dark:border-gray-800/60">
-                  <td colSpan={4} className="py-2.5 px-4"><Skeleton className="h-4 w-full" /></td>
-                </tr>
-              ))
-              : quotes.map((q) => (
-                <WatchListItem key={q.symbol} q={q} />
-              ))}
-          </tbody>
-        </table>
+      <Card.Content className="p-0">
+        <div className="max-h-[min(420px,55vh)] overflow-y-auto overflow-x-auto">
+          <table className="w-full min-w-[480px] text-[13px]">
+            <thead className="sticky top-0 z-[1] bg-white dark:bg-gray-900 border-b border-slate-200/70 dark:border-gray-800">
+              <tr>
+                <th className="text-left font-semibold text-slate-500 py-2.5 px-4 text-[11px] uppercase tracking-wide">심볼</th>
+                <th className="text-right font-semibold text-slate-500 py-2.5 px-4 text-[11px] uppercase tracking-wide">USD</th>
+                <th className="text-right font-semibold text-slate-500 py-2.5 px-4 text-[11px] uppercase tracking-wide">변동</th>
+                <th className="text-right font-semibold text-slate-500 py-2.5 px-4 text-[11px] uppercase tracking-wide">KRW</th>
+              </tr>
+            </thead>
+            <tbody>
+              {showSkeleton && quotes.length === 0
+                ? Array.from({ length: 10 }).map((_, i) => (
+                  <tr key={i} className="border-b border-slate-100 dark:border-gray-800/60">
+                    <td colSpan={4} className="py-2.5 px-4"><Skeleton className="h-4 w-full" /></td>
+                  </tr>
+                ))
+                : quotes.slice(0, 80).map((q) => (
+                  <WatchListItem key={q.symbol} q={q} />
+                ))}
+            </tbody>
+          </table>
+        </div>
       </Card.Content>
     </Card>
   )
@@ -353,6 +384,7 @@ export default function HomePage({
   const [loadErr, setLoadErr] = useState('')
   const [selectedStrategy, setSelectedStrategy] = useState(null)
   const [symbolQuery, setSymbolQuery] = useState('')
+  const [priceTickerTab, setPriceTickerTab] = useState('vol')
   const {
     candles: btcCandles,
     loading: btcCandleLoading,
@@ -387,6 +419,38 @@ export default function HomePage({
     if (!q) return watchQuotes
     return (watchQuotes ?? []).filter((x) => String(x.symbol ?? '').toUpperCase().includes(q))
   }, [watchQuotes, symbolQuery])
+
+  const tableQuotes = useMemo(() => {
+    let q = [...(filteredQuotes ?? [])]
+    const vol = (x) => Number(x.quoteVolume) || 0
+    const chg = (x) => Math.abs(Number(x.changePercent) || 0)
+    const usd = (x) => Number(x.usdPrice) || 0
+    switch (priceTickerTab) {
+      case 'fav': {
+        let fav = []
+        try {
+          fav = JSON.parse(localStorage.getItem('bb_home_fav') || '[]')
+        } catch {
+          fav = []
+        }
+        const set = new Set((Array.isArray(fav) ? fav : []).map(String))
+        q = q.filter((x) => set.has(x.symbol))
+        break
+      }
+      case 'vol':
+        q.sort((a, b) => vol(b) - vol(a))
+        break
+      case 'vola':
+        q.sort((a, b) => chg(b) - chg(a))
+        break
+      case 'price':
+        q.sort((a, b) => usd(b) - usd(a))
+        break
+      default:
+        break
+    }
+    return q
+  }, [filteredQuotes, priceTickerTab])
 
   useEffect(() => {
     let cancelled = false
@@ -496,6 +560,11 @@ export default function HomePage({
     return withBadges[dayOfYear % withBadges.length]
   }, [withBadges])
 
+  const todayDailyRoiPct = useMemo(
+    () => (todaysStrategy ? estimateStrategyDailyRoiPct(todaysStrategy) : null),
+    [todaysStrategy],
+  )
+
   const signalContext = useMemo(() => {
     const id = signalStrategyId
     if (!id) return { title: '선택된 전략 없음', sub: '시그널에서 전략을 선택하세요.' }
@@ -506,10 +575,17 @@ export default function HomePage({
     return { title: '커스텀 선택', sub: String(id).slice(0, 12) }
   }, [signalStrategyId, userStrategies])
 
-  const homeRetention = useMemo(() => {
-    const key = userStrategies[0]?.id ?? signalStrategyId ?? 'default'
-    return buildHomeRetentionStrip({ strategyKey: key, userKey: retentionUserKey })
-  }, [userStrategies, signalStrategyId, retentionUserKey])
+  const signalDailyRoiPct = useMemo(() => {
+    const id = signalStrategyId
+    if (!id) return null
+    const fromMarket = withBadges.find((s) => s.id === id)
+    if (fromMarket) return estimateStrategyDailyRoiPct(fromMarket)
+    const us = userStrategies.find((s) => s.id === id)
+    if (us) return estimateStrategyDailyRoiPct(us)
+    const cat = STRATEGIES.find((s) => s.id === id)
+    if (cat) return estimateStrategyDailyRoiPct(cat)
+    return estimateStrategyDailyRoiPct({ id })
+  }, [signalStrategyId, withBadges, userStrategies])
 
   const myStrategyStatus = useMemo(() => {
     const rows = userStrategies ?? []
@@ -531,19 +607,7 @@ export default function HomePage({
         </p>
       )}
 
-      <section className="hero-market-summary" aria-labelledby="home-hero-heading">
-        <div className="summary-main-card">
-          <h1 id="home-hero-heading" className="product-h1">
-            오늘 시장과 전략을 한눈에
-          </h1>
-          <p className="product-lead">
-            <strong className="font-semibold text-slate-800 dark:text-slate-200">홈</strong>
-            에서는 지금 시장 분위기와 추천 전략을 보고,
-            {' '}
-            <strong className="font-semibold text-slate-800 dark:text-slate-200">마켓</strong>
-            에서는 구독·비교할 전략을 고릅니다.
-          </p>
-        </div>
+      <section className="hero-market-summary" aria-label="시장 요약">
         {btcCandleError && btcCandleSource === 'fallback' && (
           <p className="mb-3 text-[12px] text-amber-800 dark:text-amber-200/90 rounded-lg border border-amber-200/80 dark:border-amber-900/50 bg-amber-50/90 dark:bg-amber-950/25 px-3 py-2">
             캔들 API 연결에 실패해 시장 요약은 제한적으로 표시됩니다.
@@ -571,11 +635,16 @@ export default function HomePage({
             </div>
             {todaysStrategy ? (
               <>
-                <p className="text-[14px] font-bold text-slate-900 dark:text-slate-100 leading-snug line-clamp-2">
+                <p className="text-[16px] font-bold text-slate-900 dark:text-slate-100 leading-snug line-clamp-2">
                   {todaysStrategy.name}
                 </p>
-                <p className="mt-1 text-[11px] text-slate-500 line-clamp-2">
-                  {todaysStrategy.fitSummary || '마켓에서 오늘 집중해 볼 후보입니다.'}
+                {todayDailyRoiPct != null && (
+                  <p className="mt-2 text-[22px] font-bold tabular-nums text-slate-900 dark:text-slate-50">
+                    오늘 추정 {todayDailyRoiPct >= 0 ? '+' : ''}{todayDailyRoiPct.toFixed(1)}%
+                  </p>
+                )}
+                <p className="mt-1 text-[12px] text-slate-500 line-clamp-2">
+                  {todaysStrategy.fitSummary || '추천 후보'}
                 </p>
                 <div className="mt-3 flex gap-2">
                   <Button variant="secondary" size="sm" onClick={() => setSelectedStrategy(todaysStrategy)}>상세</Button>
@@ -601,10 +670,15 @@ export default function HomePage({
               <Radio size={13} className="text-blue-500" />
               <span className="text-[11px] font-semibold text-blue-800 dark:text-blue-300">시그널에서 선택한 전략</span>
             </div>
-            <p className="text-[14px] font-bold text-slate-900 dark:text-slate-100 leading-snug line-clamp-2">
+            <p className="text-[16px] font-bold text-slate-900 dark:text-slate-100 leading-snug line-clamp-2">
               {signalContext.title}
             </p>
-            <p className="mt-1 text-[11px] text-slate-500">{signalContext.sub}</p>
+            {signalDailyRoiPct != null && (
+              <p className="mt-2 text-[22px] font-bold tabular-nums text-slate-900 dark:text-slate-50">
+                오늘 추정 {signalDailyRoiPct >= 0 ? '+' : ''}{signalDailyRoiPct.toFixed(1)}%
+              </p>
+            )}
+            <p className="mt-1 text-[12px] text-slate-500">{signalContext.sub}</p>
             <div className="mt-3">
               <Button variant="primary" size="sm" onClick={() => onNavigate?.('signal')}>
                 시그널 열기 <ArrowRight size={12} className="ml-1 opacity-80" />
@@ -685,17 +759,6 @@ export default function HomePage({
         </Card>
       </section>
 
-      {!canViewPremiumStrategies(u) && (
-        <div className="mb-5 rounded-lg border border-amber-200/80 dark:border-amber-900/40 bg-amber-50/70 dark:bg-amber-950/20 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-          <p className="text-[11px] text-amber-900 dark:text-amber-200 leading-snug">
-            {PLAN_MESSAGES.marketMoreStrategies}
-          </p>
-          <Button variant="secondary" size="sm" onClick={() => onGoSubscription?.()}>
-            플랜 비교
-          </Button>
-        </div>
-      )}
-
       <section className="home-top-strategies">
         <div className="flex items-end justify-between gap-2 mb-3">
           <div>
@@ -775,7 +838,12 @@ export default function HomePage({
             )}
           </div>
         </div>
-        <CoinPriceTable quotes={filteredQuotes} showSkeleton={watchLoading && watchQuotes.length === 0} />
+        <CoinPriceTable
+          quotes={tableQuotes}
+          showSkeleton={watchLoading && watchQuotes.length === 0}
+          tab={priceTickerTab}
+          onTabChange={setPriceTickerTab}
+        />
       </section>
 
       {watchError && (
