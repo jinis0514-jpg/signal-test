@@ -188,7 +188,7 @@ export const STATUS_CONFIG = {
 
 /* ── 운영 상태 설정 ──────────────────────────── */
 export const RUNNING_STATUS_CONFIG = {
-  running: { label: '운영 중', color: 'bg-emerald-500' },
+  running: { label: '운영 중', color: 'bg-blue-500' },
   waiting: { label: '신호 대기', color: 'bg-amber-400' },
   stopped: { label: '종료',    color: 'bg-slate-400'  },
 }

@@ -1,11 +1,16 @@
 import { cn } from '../../lib/cn'
 
-function Card({ className, children }) {
+function Card({ className, children, interactive = false }) {
   return (
     <div
       className={cn(
-        'bg-white border border-slate-150 rounded-[2px]',
+        'bg-white border border-slate-200 rounded-[8px]',
         'dark:bg-gray-900 dark:border-gray-800',
+        'shadow-none',
+        interactive && [
+          'hover:border-slate-300 dark:hover:border-gray-600',
+          'cursor-pointer',
+        ],
         className,
       )}
     >
@@ -18,8 +23,7 @@ Card.Header = function CardHeader({ className, children }) {
   return (
     <div
       className={cn(
-        'px-3 py-1.5 border-b border-slate-100 bg-slate-50/40',
-        'dark:border-gray-800 dark:bg-gray-800/30',
+        'px-4 py-3 border-b border-slate-100 dark:border-gray-800',
         className,
       )}
     >
@@ -30,7 +34,7 @@ Card.Header = function CardHeader({ className, children }) {
 
 Card.Title = function CardTitle({ className, children }) {
   return (
-    <h3 className={cn('text-[11px] font-semibold text-slate-700 dark:text-slate-300 tracking-tight', className)}>
+    <h3 className={cn('text-[14px] font-semibold text-slate-900 dark:text-slate-100 tracking-tight', className)}>
       {children}
     </h3>
   )
@@ -38,7 +42,7 @@ Card.Title = function CardTitle({ className, children }) {
 
 Card.Content = function CardContent({ className, children }) {
   return (
-    <div className={cn('p-3', className)}>
+    <div className={cn('p-4', className)}>
       {children}
     </div>
   )
@@ -48,8 +52,7 @@ Card.Footer = function CardFooter({ className, children }) {
   return (
     <div
       className={cn(
-        'px-3 py-1.5 border-t border-slate-100 bg-slate-50/30',
-        'dark:border-gray-800 dark:bg-gray-800/20',
+        'px-4 py-2.5 border-t border-slate-100 dark:border-gray-800',
         className,
       )}
     >

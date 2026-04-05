@@ -5,7 +5,9 @@ export {
   getTickerPrice,
   get24hrTicker,
   getKlines,
+  fetchKlines,
   toUsdtSymbol,
 } from './binanceService'
 
 export { getDisplayPrice } from './displayPriceService'
+export { getCachedPrice, getCachedKlines } from './priceCache'

@@ -83,7 +83,7 @@ export default function EquityCurve({ equity, xLabels = [] }) {
           />
           <text
             x={PAD.left - 5} y={(y + 3.5).toFixed(1)}
-            textAnchor="end" fontSize="8" fontFamily="ui-monospace, monospace"
+            textAnchor="end" fontSize="10" fontFamily="ui-monospace, monospace"
             className="fill-slate-400 dark:fill-slate-600"
           >
             {value === 0 ? '0%' : `${sign(value)}${value}%`}
@@ -146,7 +146,7 @@ export default function EquityCurve({ equity, xLabels = [] }) {
       <text
         x={(W - PAD.right + 3 + (PAD.right - 5) / 2).toFixed(1)}
         y={(last.y + 4).toFixed(1)}
-        textAnchor="middle" fontSize="8.5" fill="white"
+        textAnchor="middle" fontSize="10" fill="white"
         fontFamily="ui-monospace, monospace" fontWeight="700"
       >
         {sign(last.v)}{last.v.toFixed(1)}%
@@ -156,7 +156,7 @@ export default function EquityCurve({ equity, xLabels = [] }) {
       {mddStart < mddEnd && maxDD > 0.5 && (
         <text
           x={mddMidX} y={mddBotY.toFixed(1)}
-          textAnchor="middle" fontSize="7.5" fill="#dc2626"
+          textAnchor="middle" fontSize="9" fill="#dc2626"
           fontFamily="ui-monospace, monospace" fontWeight="600" opacity="0.75"
         >
           MDD ▼{maxDD.toFixed(1)}pp

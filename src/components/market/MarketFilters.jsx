@@ -4,7 +4,6 @@ import Input from '../ui/Input'
 import Button from '../ui/Button'
 import {
   TYPE_OPTIONS,
-  STATUS_OPTIONS,
   RECOMMEND_OPTIONS,
   SORT_OPTIONS,
   ASSET_OPTIONS,
@@ -31,7 +30,7 @@ function PillGroup({ options, selected, onToggle }) {
           key={opt.value}
           onClick={() => onToggle(opt.value)}
           className={cn(
-            'h-6 px-2 text-[11px] font-medium border rounded-[1px] transition-colors',
+            'h-6 px-2 text-[11px] font-medium border rounded-md transition-colors',
             selected.includes(opt.value)
               ? 'bg-slate-900 text-white border-slate-900 dark:bg-slate-100 dark:text-slate-900 dark:border-slate-100'
               : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400 hover:text-slate-700 ' +
@@ -57,7 +56,7 @@ function NumberInput({ label, value, onChange, placeholder }) {
         className="
           h-7 w-full text-[11px] px-2
           border border-slate-200 dark:border-gray-700
-          rounded-[1px]
+          rounded-md
           text-slate-700 dark:text-slate-300
           placeholder:text-slate-300 dark:placeholder:text-slate-700
           bg-white dark:bg-gray-900
@@ -81,14 +80,15 @@ export default function MarketFilters({ filters, onChange, onReset }) {
   const isActive =
     filters.search !== '' ||
     filters.types.length > 0 ||
-    filters.status.length > 0 ||
     filters.recommend.length > 0 ||
     (filters.assets ?? []).length > 0 ||
     (filters.holdings ?? []).length > 0 ||
     (filters.marketEnv ?? []).length > 0 ||
     filters.roiMin !== '' ||
+    (filters.recentRoiMin ?? '') !== '' ||
     filters.winMin !== '' ||
-    filters.mddMax !== ''
+    filters.mddMax !== '' ||
+    (filters.tradesMin ?? '') !== ''
 
   return (
     <div className="p-3.5">
@@ -139,15 +139,6 @@ export default function MarketFilters({ filters, onChange, onReset }) {
         />
       </FilterSection>
 
-      {/* 상태 */}
-      <FilterSection title="상태">
-        <PillGroup
-          options={STATUS_OPTIONS}
-          selected={filters.status}
-          onToggle={(v) => toggle('status', v)}
-        />
-      </FilterSection>
-
       {/* 추천 등급 */}
       <FilterSection title="추천 등급">
         <PillGroup
@@ -167,6 +158,12 @@ export default function MarketFilters({ filters, onChange, onReset }) {
             placeholder="예: 20"
           />
           <NumberInput
+            label="최근 7일 성과 최소 (%)"
+            value={filters.recentRoiMin ?? ''}
+            onChange={(v) => onChange('recentRoiMin', v)}
+            placeholder="예: 2"
+          />
+          <NumberInput
             label="승률 최소 (%)"
             value={filters.winMin}
             onChange={(v) => onChange('winMin', v)}
@@ -177,6 +174,12 @@ export default function MarketFilters({ filters, onChange, onReset }) {
             value={filters.mddMax}
             onChange={(v) => onChange('mddMax', v)}
             placeholder="예: 15"
+          />
+          <NumberInput
+            label="거래 수 최소"
+            value={filters.tradesMin ?? ''}
+            onChange={(v) => onChange('tradesMin', v)}
+            placeholder="예: 30"
           />
         </div>
       </FilterSection>
@@ -189,7 +192,7 @@ export default function MarketFilters({ filters, onChange, onReset }) {
           className="
             h-7 w-full text-[11px] px-1.5
             border border-slate-200 dark:border-gray-700
-            rounded-[1px]
+            rounded-md
             text-slate-700 dark:text-slate-300
             bg-white dark:bg-gray-900
             focus:outline-none focus:border-slate-400 dark:focus:border-gray-500

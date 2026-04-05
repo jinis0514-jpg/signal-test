@@ -51,15 +51,15 @@ export default function MonthlyBar({ months }) {
             x={b.x.toFixed(1)} y={b.y.toFixed(1)}
             width={b.barW.toFixed(1)} height={Math.max(b.barH, 1).toFixed(1)}
             rx="0.5"
-            className={b.isPos ? 'fill-emerald-400' : 'fill-red-400'}
+            className={b.isPos ? 'fill-blue-500' : 'fill-red-500'}
           />
 
           {/* 값 레이블 */}
           <text
             x={(b.x + b.barW / 2).toFixed(1)}
             y={(b.isPos ? b.y - 3 : b.y + b.barH + 9).toFixed(1)}
-            textAnchor="middle" fontSize="6" fontFamily="ui-monospace, monospace"
-            className={b.isPos ? 'fill-emerald-600 dark:fill-emerald-500' : 'fill-red-500'}
+            textAnchor="middle" fontSize="10" fontFamily="ui-monospace, monospace"
+            className={b.isPos ? 'fill-blue-600 dark:fill-blue-500' : 'fill-red-500'}
           >
             {sign(b.value)}{b.value.toFixed(1)}
           </text>
@@ -68,7 +68,7 @@ export default function MonthlyBar({ months }) {
           <text
             x={(b.x + b.barW / 2).toFixed(1)}
             y={(H - 4).toFixed(1)}
-            textAnchor="middle" fontSize="6.5" fontFamily="ui-monospace, monospace"
+            textAnchor="middle" fontSize="10" fontFamily="ui-monospace, monospace"
             className="fill-slate-400 dark:fill-slate-600"
           >
             {b.label}

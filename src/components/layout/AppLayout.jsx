@@ -3,6 +3,7 @@ import Topbar from './Topbar'
 export default function AppLayout({
   currentPage,
   onNavigate,
+  onLandingNavigate,
   isDark,
   onToggleDark,
   user,
@@ -13,16 +14,22 @@ export default function AppLayout({
   profile,
   authLoading,
   authError,
-  onLogin,
   onLogout,
   supaReady,
-  profileLoading,
+  notifications = [],
+  unreadNotificationCount = 0,
+  notificationsLoading = false,
+  notificationsError = '',
+  onNotificationMarkRead,
+  onNotificationMarkAllRead,
+  onNotificationNavigate,
 }) {
   return (
     <div className="h-screen flex flex-col bg-white dark:bg-gray-900 overflow-hidden">
       <Topbar
         currentPage={currentPage}
         onNavigate={onNavigate}
+        onLandingNavigate={onLandingNavigate}
         isDark={isDark}
         onToggleDark={onToggleDark}
         user={user}
@@ -32,12 +39,17 @@ export default function AppLayout({
         profile={profile}
         authLoading={authLoading}
         authError={authError}
-        onLogin={onLogin}
         onLogout={onLogout}
         supaReady={supaReady}
-        profileLoading={profileLoading}
+        notifications={notifications}
+        unreadNotificationCount={unreadNotificationCount}
+        notificationsLoading={notificationsLoading}
+        notificationsError={notificationsError}
+        onNotificationMarkRead={onNotificationMarkRead}
+        onNotificationMarkAllRead={onNotificationMarkAllRead}
+        onNotificationNavigate={onNotificationNavigate}
       />
-      <main className="flex-1 overflow-y-auto bg-gray-50/80 dark:bg-gray-950">
+      <main className="flex-1 overflow-y-auto bg-slate-50/80 dark:bg-[#0b0f1a]">
         {children}
       </main>
     </div>

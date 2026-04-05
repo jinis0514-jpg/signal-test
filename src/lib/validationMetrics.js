@@ -58,6 +58,66 @@ export function buildEquityXLabels(length) {
   return unique.map((idx, i) => ({ idx, label: labels[Math.min(i, labels.length - 1)] }))
 }
 
+/** 거래 청산 시각 기준 누적 손익% 타임라인 */
+export function buildEquityTimelineFromTrades(trades) {
+  if (!Array.isArray(trades) || trades.length === 0) return []
+  let equity = 100
+  const firstT = trades[0].entryTime ?? trades[0].exitTime ?? Date.now()
+  const pts = [{ t: firstT, eq: 0 }]
+  for (const tr of trades) {
+    const p = Number(tr.pnl)
+    if (!Number.isFinite(p)) continue
+    equity *= 1 + p / 100
+    pts.push({ t: tr.exitTime, eq: +(equity - 100).toFixed(4) })
+  }
+  return pts
+}
+
+const PRESET_MS = {
+  week: 7 * 86400000,
+  month: 30 * 86400000,
+  year: 365 * 86400000,
+}
+
+/**
+ * 기준 시각 기준 구간 필터 (주/월/년) — 포인트가 너무 적으면 전체 유지
+ * @param {'week'|'month'|'year'|'all'} preset
+ */
+export function filterEquityTimelineByPreset(pts, preset, refTime) {
+  if (!pts.length || preset === 'all') return pts
+  const end = refTime ?? pts[pts.length - 1].t
+  const win = PRESET_MS[preset]
+  if (win == null) return pts
+  const start = end - win
+  const filtered = pts.filter((p) => p.t >= start)
+  return filtered.length >= 2 ? filtered : pts
+}
+
+function fmtAxisLabel(ms) {
+  const d = new Date(ms)
+  return `${d.getMonth() + 1}/${d.getDate()}`
+}
+
+/** 타임라인에 맞춘 x축 라벨 (인덱스 정렬) */
+export function buildEquityXLabelsFromTimeline(eqValues, timelinePts) {
+  const n = eqValues.length
+  if (n < 2 || !timelinePts?.length) return buildEquityXLabels(n)
+  const last = Math.min(n, timelinePts.length) - 1
+  if (last < 1) return buildEquityXLabels(n)
+  const idxs = [
+    0,
+    Math.floor(last * 0.25),
+    Math.floor(last * 0.5),
+    Math.floor(last * 0.75),
+    last,
+  ]
+  const unique = [...new Set(idxs)].filter((i) => i >= 0 && i <= last).sort((a, b) => a - b)
+  return unique.map((idx) => ({
+    idx,
+    label: timelinePts[idx] ? fmtAxisLabel(timelinePts[idx].t) : String(idx),
+  }))
+}
+
 const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
 /** exit 시각 기준 월별 합산 PnL% (최근 12개 월 버킷) */

@@ -1,11 +1,18 @@
 /**
  * userStrategies.js
- * 사용자 직접 제작 전략 localStorage 유틸리티
+ * 사용자 전략 — Supabase 로그인 시 DB가 단일 소스(SSOT), localStorage는
+ * 오프라인·초기 페인트용 캐시 및 비로그인 로컬 편집용.
  *
  * localStorage key: bb_user_strategies
  * 형태: UserStrategy[]
  */
 import { seededRng, strToSeed } from './seedRandom'
+import {
+  normalizeStrategyPayload,
+  extractConditionIds,
+  DEFAULT_RISK_CONFIG,
+} from './strategyPayload'
+import { buildCanonicalCodeFromPayload } from './strategyCodeExport'
 
 const LS_KEY     = 'bb_user_strategies'
 const LS_KEY_OLD = 'bb_strategies'          // 이전 키 (마이그레이션용)
@@ -19,18 +26,19 @@ function uuid() {
   })
 }
 
-/* ── 조건 배열 → 전략 유형 추론 ─────────────── */
+/* ── 조건 배열 → (실행)전략 스타일 추론 ─────────────── */
 const TREND_CONDS = ['ema_cross', 'ema_cross_fast', 'macd_cross', 'volume_surge', 'obv_div']
 const RANGE_CONDS = ['rsi_ob_os', 'rsi_mid', 'bb_touch']
 const BREAK_CONDS = ['bb_squeeze']
 
-function inferType(conditions = []) {
-  const t = conditions.filter((c) => TREND_CONDS.includes(c)).length
-  const r = conditions.filter((c) => RANGE_CONDS.includes(c)).length
-  const b = conditions.filter((c) => BREAK_CONDS.includes(c)).length
-  if (b > 0 && b >= t && b >= r) return { type: 'breakout', typeLabel: '돌파'     }
-  if (r > t)                      return { type: 'range',    typeLabel: '레인지'   }
-  return                                 { type: 'trend',    typeLabel: '추세 추종' }
+function inferStrategyType(conditions = []) {
+  const ids = extractConditionIds(conditions)
+  const t = ids.filter((c) => TREND_CONDS.includes(c)).length
+  const r = ids.filter((c) => RANGE_CONDS.includes(c)).length
+  const b = ids.filter((c) => BREAK_CONDS.includes(c)).length
+  if (b > 0 && b >= t && b >= r) return { strategyType: 'breakout', strategyTypeLabel: '돌파' }
+  if (r > t)                      return { strategyType: 'range',    strategyTypeLabel: '레인지' }
+  return                                 { strategyType: 'trend',    strategyTypeLabel: '추세 추종' }
 }
 
 /* ── asset → 연결 sim/val 전략 ID ─────────── */
@@ -92,49 +100,73 @@ export function saveUserStrategies(strategies) {
  * @returns {object}  저장된 전략 객체
  */
 export function upsertUserStrategy(data, status = 'submitted') {
-  const { type, typeLabel } = inferType(data.conditions ?? [])
-  const asset               = (data.asset || 'BTC').toUpperCase()
-  const metrics             = generateMockMetrics(data.name, data.riskLevel)
+  const p = normalizeStrategyPayload(data)
+  const kind = String(p.type ?? data?.type ?? 'signal')
+  const { strategyType, strategyTypeLabel } = inferStrategyType(p.conditions)
+  const asset = (p.asset || 'BTC').toUpperCase()
+  const metricsObj = generateMockMetrics(p.name, p.riskLevel)
+  const risk = { ...DEFAULT_RISK_CONFIG, ...p.risk_config }
+  const canonicalCode = buildCanonicalCodeFromPayload(data)
 
   const strategy = {
-    /* ID: 신규면 생성, 업데이트면 유지 */
-    id:        data.id || `user-${uuid()}`,
-    createdAt: data.createdAt || Date.now(),
+    id:        p.id || data.id || `user-${uuid()}`,
+    createdAt: data.createdAt || p.createdAt || Date.now(),
     updatedAt: Date.now(),
 
-    /* 폼 데이터 */
-    name:         (data.name || '이름 없는 전략').trim(),
-    tags:         data.tags ?? [],
+    name:         p.name,
+    description:  p.description,
+    tags:         p.tags,
     asset,
     assetType:    asset.toLowerCase(),
-    timeframe:    data.timeframe || '1h',
-    mode:         data.mode     || 'nocode',
-    type,
-    typeLabel,
-    riskLevel:    data.riskLevel    || 'mid',
-    conditions:   data.conditions   ?? [],
-    stopType:     data.stopType     || 'fixed_pct',
-    stopValue:    data.stopValue    || '',
-    takeProfitPct: data.takeProfitPct || '',
-    posSize:      data.posSize      || '',
-    maxOpenPos:   data.maxOpenPos   || '1',
-    code:         data.code         || '',
+    timeframe:    p.timeframe || '1h',
+    mode:         'code',
+    type: kind === 'method' ? 'method' : 'signal',
+    typeLabel: kind === 'method' ? '매매법' : '전략',
+    strategyType,
+    strategyTypeLabel,
+    riskLevel:    p.riskLevel || 'mid',
+    conditions:   p.conditions,
+    conditionLogic: p.conditionLogic ?? null,
+    risk_config:  risk,
+    code:         canonicalCode,
 
-    /* 메타 */
+    metrics: {
+      roi: metricsObj.roi,
+      winRate: metricsObj.winRate,
+      mdd: metricsObj.mdd,
+      trades: metricsObj.trades,
+      roi7d: metricsObj.roi7d,
+    },
+    price_tier: data.price_tier ?? p.price_tier ?? 'free',
+
+    method_pdf_path: p.method_pdf_path ?? data?.method_pdf_path ?? null,
+    method_pdf_preview_path: p.method_pdf_preview_path ?? data?.method_pdf_preview_path ?? null,
+    method_preview_mode: p.method_preview_mode ?? data?.method_preview_mode ?? 'none',
+    linked_signal_strategy_id: p.linked_signal_strategy_id ?? data?.linked_signal_strategy_id ?? null,
+
+    stopType:     risk.stopType ?? 'fixed_pct',
+    stopValue:    risk.stopValue ?? '',
+    takeProfitPct: risk.takeProfitPct ?? '',
+    posSize:      risk.posSize ?? '',
+    maxOpenPos:   risk.maxOpenPos ?? '1',
+    minSignalGap: risk.minSignalGap ?? '',
+    allowReentry: !!risk.allowReentry,
+
     creator:        'me',
     status,
+    is_public: status === 'approved' || status === 'published',
     isUserStrategy: true,
 
-    /* mock 성과 */
-    ...metrics,
+    ...metricsObj,
 
-    /* StrategyCard / MarketPage 호환 */
     ctaStatus:      'not_started',
     recommendBadge: null,
-    fitSummary:     `직접 제작한 ${typeLabel} 전략`,
+    fitSummary:     kind === 'method'
+      ? 'PDF 매매법 — 연결 전략으로 바로 실행'
+      : `직접 제작한 ${strategyTypeLabel} 전략`,
     fitDetail:      '백테스트 완료 후 적합도가 표시됩니다.',
     author:         '나',
-    desc:           data.name ? `${data.name} — 사용자가 직접 제작한 전략입니다.` : '사용자가 직접 제작한 전략입니다.',
+    desc:           p.description || `${p.name} — 사용자가 직접 제작한 전략입니다.`,
     recentSignals:  [],
     signals:        0,
     avgHolding:     '—',
@@ -157,11 +189,11 @@ export function addUserStrategy(data) {
 
 /* ── 검수 상태 정의 ─────────────────────────── */
 export const REVIEW_STATUS = {
-  draft:        { label: '작성 중',  badge: 'default', market: false },
-  submitted:    { label: '검토 대기', badge: 'info',    market: false },
-  under_review: { label: '검토 중',  badge: 'warning',  market: false },
-  approved:     { label: '승인됨',   badge: 'success',  market: true  },
-  rejected:     { label: '반려됨',   badge: 'danger',   market: false },
+  draft:        { label: '작성 중',      badge: 'default', market: false },
+  submitted:    { label: '검수 대기',    badge: 'info',    market: false },
+  under_review: { label: '검수 중',      badge: 'warning', market: false },
+  approved:     { label: '마켓 승인',  badge: 'success', market: true  },
+  rejected:     { label: '반려',         badge: 'danger',  market: false },
 }
 
 /**

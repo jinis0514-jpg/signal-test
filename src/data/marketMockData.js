@@ -1,4 +1,10 @@
 import { STRATEGIES } from './mockData'
+import { normalizeMarketStrategy } from '../lib/marketStrategy'
+
+function safeNum(v, fb = 0) {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : fb
+}
 
 // ─────────────────────────────────────────
 // 전략별 마켓 전용 enrichment 데이터
@@ -205,11 +211,11 @@ const EXTRA = {
   s12: { assetType: 'btc', holding: 'mid',   marketEnv: 'trend' },
 }
 
-/** STRATEGIES + enrichment 병합 */
-export const MARKET_STRATEGIES = STRATEGIES.map((s) => ({
+/** STRATEGIES + enrichment 병합 + 마켓 지표 정규화 */
+export const MARKET_STRATEGIES = STRATEGIES.map((s) => normalizeMarketStrategy({
   ...s,
   ...(ENRICHMENT[s.id] ?? {}),
-  ...(EXTRA[s.id]      ?? {}),
+  ...(EXTRA[s.id] ?? {}),
   roi7d: ROI7D[s.id] ?? null,
 }))
 
@@ -240,12 +246,26 @@ export const RECOMMEND_OPTIONS = [
   { value: 'RISKY', label: 'RISKY' },
 ]
 
+/** 상단 빠른 정렬 탭 (MarketPage) */
+export const MARKET_SORT_TABS = [
+  { value: 'recommend_desc', label: '추천순' },
+  { value: 'return_desc',    label: '수익률순' },
+  { value: 'recent7d_desc',  label: '최근순' },
+  { value: 'winRate_desc',   label: '승률순' },
+  { value: 'mdd_asc',        label: '안정성순' },
+  { value: 'updated_desc',   label: '최신순' },
+]
+
 export const SORT_OPTIONS = [
-  { value: 'roi_desc',     label: 'ROI 높은 순'    },
-  { value: 'winRate_desc', label: '승률 높은 순'    },
-  { value: 'mdd_asc',      label: 'MDD 낮은 순'    },
-  { value: 'trades_desc',  label: '거래 수 많은 순' },
-  { value: 'name_asc',     label: '이름 순'         },
+  { value: 'recommend_desc', label: '추천순 (가중 점수)' },
+  { value: 'return_desc',    label: '수익률 높은 순' },
+  { value: 'recent7d_desc',  label: '최근 7일 성과 높은 순' },
+  { value: 'winRate_desc',   label: '승률 높은 순' },
+  { value: 'trades_desc',    label: '거래 수 많은 순' },
+  { value: 'mdd_asc',        label: '최대 낙폭 낮은 순 (안정성)' },
+  { value: 'updated_desc',   label: '최신 순' },
+  { value: 'roi_desc',       label: 'ROI 높은 순 (호환)' },
+  { value: 'name_asc',       label: '이름 순' },
 ]
 
 export const ASSET_OPTIONS = [
@@ -268,49 +288,80 @@ export const MARKET_ENV_OPTIONS = [
 export const DEFAULT_FILTERS = {
   search:    '',
   types:     [],
-  status:    [],
   recommend: [],
   assets:    [],
   holdings:  [],
   marketEnv: [],
   roiMin:    '',
+  recentRoiMin: '',
   winMin:    '',
   mddMax:    '',
-  sort:      'roi_desc',
+  tradesMin: '',
+  sort:      'recommend_desc',
 }
 
 // ─────────────────────────────────────────
 // 클라이언트 필터링 함수
 // ─────────────────────────────────────────
 export function applyMarketFilters(strategies, filters) {
-  const { search, types, status, recommend, assets, holdings, marketEnv, roiMin, winMin, mddMax, sort } = filters
+  const { search, types, recommend, assets, holdings, marketEnv, roiMin, recentRoiMin, winMin, mddMax, tradesMin, sort } = filters
 
-  const result = strategies.filter((s) => {
+  const enriched = (strategies ?? []).map((s) => (
+    s.recommendationScore != null && Number.isFinite(s.recommendationScore)
+      ? s
+      : normalizeMarketStrategy(s)
+  ))
+
+  const result = enriched.filter((s) => {
     if (
       search &&
       !s.name.toLowerCase().includes(search.toLowerCase()) &&
       !s.typeLabel.toLowerCase().includes(search.toLowerCase())
     ) return false
     if (types.length     && !types.includes(s.type))                     return false
-    if (status.length    && !status.includes(s.status))                   return false
     if (recommend.length && !recommend.includes(s.recommendBadge))        return false
     if (assets.length    && !assets.includes(s.assetType))                return false
     if (holdings.length  && !holdings.includes(s.holding))                return false
     if (marketEnv.length && !marketEnv.includes(s.marketEnv))             return false
-    if (roiMin !== ''    && s.roi      < Number(roiMin))                   return false
-    if (winMin !== ''    && s.winRate  < Number(winMin))                   return false
-    if (mddMax !== ''    && Math.abs(s.mdd) > Number(mddMax))             return false
+    const ret = s.totalReturnPct != null ? s.totalReturnPct : s.roi
+    const mddVal = s.maxDrawdown != null ? Math.abs(s.maxDrawdown) : Math.abs(s.mdd)
+    const tc = s.tradeCount != null ? s.tradeCount : s.trades
+    if (roiMin !== ''    && safeNum(ret, 0) < Number(roiMin))             return false
+    if (recentRoiMin !== '' && safeNum(s.recentRoi7d ?? s.roi7d, 0) < Number(recentRoiMin)) return false
+    if (winMin !== ''    && safeNum(s.winRate, 0) < Number(winMin))       return false
+    if (mddMax !== ''    && mddVal > Number(mddMax))                      return false
+    if (tradesMin !== '' && safeNum(tc, 0) < Number(tradesMin))           return false
     return true
   })
 
+  const ret = (s) => (s.totalReturnPct != null ? s.totalReturnPct : s.roi)
+  const mdd = (s) => (s.maxDrawdown != null ? Math.abs(s.maxDrawdown) : Math.abs(safeNum(s.mdd, 0)))
+  const trades = (s) => (s.tradeCount != null ? s.tradeCount : s.trades)
+  const updated = (s) => safeNum(s.updatedAt, 0)
+  const recent7d = (s) => safeNum(s.recentRoi7d ?? s.roi7d, 0)
+
   result.sort((a, b) => {
     switch (sort) {
-      case 'roi_desc':     return b.roi - a.roi
-      case 'winRate_desc': return b.winRate - a.winRate
-      case 'mdd_asc':      return Math.abs(a.mdd) - Math.abs(b.mdd)
-      case 'trades_desc':  return b.trades - a.trades
-      case 'name_asc':     return a.name.localeCompare(b.name)
-      default:             return 0
+      case 'recommend_desc':
+      case 'score_desc':
+        return safeNum(b.recommendationScore, -1e18) - safeNum(a.recommendationScore, -1e18)
+      case 'return_desc':
+      case 'roi_desc':
+        return ret(b) - ret(a)
+      case 'winRate_desc':
+        return safeNum(b.winRate, 0) - safeNum(a.winRate, 0)
+      case 'recent7d_desc':
+        return recent7d(b) - recent7d(a)
+      case 'mdd_asc':
+        return mdd(a) - mdd(b)
+      case 'trades_desc':
+        return trades(b) - trades(a)
+      case 'updated_desc':
+        return updated(b) - updated(a)
+      case 'name_asc':
+        return String(a.name ?? '').localeCompare(String(b.name ?? ''), 'ko')
+      default:
+        return 0
     }
   })
 

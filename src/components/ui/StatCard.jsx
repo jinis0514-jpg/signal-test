@@ -1,46 +1,75 @@
 import { cn } from '../../lib/cn'
-import { TrendingUp, TrendingDown } from 'lucide-react'
+import { deltaTextClass, deltaArrow } from '../../lib/deltaDisplay'
 
-export default function StatCard({ label, value, sub, trend, className }) {
-  const isUp   = trend === 'up'
-  const isDown = trend === 'down'
+export default function StatCard({
+  label,
+  value,
+  sub,
+  trend,
+  /** 있으면 ▲/▼ + 수치% (색: blue/red/gray) */
+  deltaPct,
+  className,
+  valueClassName,
+  labelClassName,
+}) {
+  const dp = deltaPct != null ? Number(deltaPct) : null
+  const showDelta = Number.isFinite(dp)
+  const up = trend === 'up'
+  const down = trend === 'down'
 
   return (
     <div
       className={cn(
-        'bg-white border border-slate-100 rounded-[2px] px-3 py-2',
+        'bg-white border border-slate-200 rounded-[8px] px-4 py-3',
         'dark:bg-gray-900 dark:border-gray-800',
+        'shadow-none',
         className,
       )}
     >
-      {/* 라벨 */}
-      <p className="text-[10px] font-medium text-slate-400 dark:text-slate-600 tracking-wide uppercase mb-1">
+      <p className={cn(
+        'text-[10px] font-semibold text-slate-500 dark:text-slate-500 tracking-[0.06em] uppercase mb-1.5',
+        labelClassName,
+      )}>
         {label}
       </p>
 
-      {/* 메인 값 + 추세 */}
-      <div className="flex items-end gap-1.5">
-        <span className="text-[16px] font-bold text-slate-900 dark:text-slate-100 leading-none tabular-nums">
+      <div className="flex items-end gap-2 flex-wrap">
+        <span className={cn(
+          'text-[20px] font-bold text-slate-900 dark:text-slate-100 leading-none tabular-nums',
+          valueClassName,
+        )}>
           {value}
         </span>
-        {trend && (
+        {trend && showDelta && (
           <span
             className={cn(
-              'flex items-center gap-0.5 text-[10px] font-semibold leading-none mb-[1px]',
-              isUp   && 'text-emerald-600',
-              isDown && 'text-red-600',
-              !isUp && !isDown && 'text-slate-400',
+              'inline-flex items-center gap-0.5 text-[13px] font-bold leading-none tabular-nums',
+              deltaTextClass(dp),
             )}
           >
-            {isUp   && <TrendingUp   size={10} strokeWidth={2} />}
-            {isDown && <TrendingDown size={10} strokeWidth={2} />}
+            <span className="select-none" aria-hidden>{deltaArrow(dp)}</span>
+            <span>
+              {dp > 0 ? '+' : ''}{dp.toFixed(2)}%
+            </span>
+          </span>
+        )}
+        {trend && !showDelta && (
+          <span
+            className={cn(
+              'text-[13px] font-bold leading-none',
+              up && 'text-emerald-600 dark:text-emerald-400',
+              down && 'text-red-600 dark:text-red-400',
+              !up && !down && 'text-slate-400',
+            )}
+            aria-hidden
+          >
+            {up ? '▲' : down ? '▼' : '—'}
           </span>
         )}
       </div>
 
-      {/* 보조 설명 */}
       {sub && (
-        <p className="mt-0.5 text-[10px] text-slate-400 dark:text-slate-600 leading-snug">
+        <p className="mt-1.5 text-[11px] text-slate-500 dark:text-slate-500 leading-snug">
           {sub}
         </p>
       )}

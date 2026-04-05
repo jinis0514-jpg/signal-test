@@ -1,11 +1,17 @@
-# Dependencies & build
+# --- 필수 제외 (용량·보안·재생성 가능) ---
+# node_modules/ — 용량이 매우 크고, package.json 기준으로 npm install로 다시 설치하면 됨
 node_modules/
+
+# dist/ — Vite 등으로 만든 빌드 결과물, 소스에서 언제든 다시 빌드 가능
 dist/
 
-# Env (never commit secrets)
+# .env — API 키·DB 비밀번호 등 민감정보가 들어갈 수 있음 (절대 커밋 금지)
 .env
 .env.local
 .env.*.local
+
+# .vite — Vite 개발/빌드 캐시 (로컬에서 자동 생성, 저장소에 불필요)
+.vite
 
 # Logs & OS
 *.log

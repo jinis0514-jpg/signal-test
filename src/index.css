@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 @import "tailwindcss";
 
 /* class 기반 다크모드 */
@@ -6,21 +7,271 @@
 /* ── Base overrides ─────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
 
-html { font-size: 13px; }
+html { font-size: 15px; }
 
 body {
-  font-family: "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: "Inter", "Pretendard", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: theme(colors.slate.50);
-  color: theme(colors.slate.800);
-  line-height: 1.5;
+  background: #f8fafc;
+  color: #0f172a;
+  line-height: 1.55;
+  letter-spacing: -0.01em;
 }
 
-/* 스크롤바 */
-* { scrollbar-width: thin; scrollbar-color: theme(colors.slate.200) transparent; }
-::-webkit-scrollbar        { width: 4px; height: 4px; }
-::-webkit-scrollbar-thumb  { background: theme(colors.slate.200); border-radius: 0; }
+.dark body {
+  background: #0b0f1a;
+  color: #e2e8f0;
+}
 
-/* 기본 포커스 링 제거 (컴포넌트에서 개별 처리) */
+/* ── Design Tokens (제품 UI) ─────────────────
+ *  Primary #2962ff = 행동·링크·선택
+ *  Positive #16c784 = 수익·상승·긍정 수치
+ *  Danger #ea3943 = 손실·MDD·위험·에러
+ *  카드: radius 8px, border 1px, shadow 최소
+ */
+:root {
+  --bb-radius: 8px;
+  --bb-radius-sm: 6px;
+  --bb-radius-lg: 10px;
+  --bb-shadow-card: none;
+  --bb-shadow-pop: 0 10px 28px rgba(15, 23, 42, 0.08);
+  --bb-color-primary: #2962ff;
+  --bb-color-positive: #16c784;
+  --bb-color-danger: #ea3943;
+}
+
+.dark {
+  --bb-shadow-card: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --bb-shadow-pop: 0 10px 28px rgba(0, 0, 0, 0.35);
+}
+
+@layer utilities {
+  .bb-radius { border-radius: var(--bb-radius); }
+  .bb-radius-sm { border-radius: var(--bb-radius-sm); }
+  .bb-radius-lg { border-radius: var(--bb-radius-lg); }
+  .bb-shadow-card { box-shadow: var(--bb-shadow-card); }
+  .bb-shadow-pop { box-shadow: var(--bb-shadow-pop); }
+
+  .bb-panel {
+    @apply bg-white dark:bg-gray-900 border border-slate-200 dark:border-gray-800 rounded-[8px] shadow-none;
+  }
+
+  /** 공통 카드 패널 — radius 8px, border 중심 */
+  .bb-card {
+    @apply rounded-[8px] border border-slate-200 bg-white p-4 shadow-none dark:border-gray-700 dark:bg-gray-900/50;
+  }
+
+  .bb-panel-subtle {
+    @apply bg-slate-50/70 dark:bg-gray-800/30 border border-slate-200/80 dark:border-gray-800 rounded-lg;
+  }
+
+  .bb-divider {
+    @apply border-b border-slate-200/80 dark:border-gray-800;
+  }
+
+  .bb-kpi-label {
+    @apply text-[10px] font-semibold text-slate-500 dark:text-slate-500 uppercase tracking-[0.06em];
+  }
+
+  .bb-kpi-value {
+    @apply text-[15px] font-bold tabular-nums text-slate-900 dark:text-slate-100;
+  }
+
+  /*
+   * LONG=파랑, SHORT=빨강, 양수 PnL·상승=초록, 음수·MDD=빨강
+   */
+  .bb-pos-long  { @apply text-blue-600 dark:text-blue-400; }
+  .bb-pos-short { @apply text-red-600 dark:text-red-400; }
+  .bb-pos-wait  { @apply text-slate-400 dark:text-slate-500; }
+  .bb-pnl-pos   { @apply text-emerald-600 dark:text-emerald-400; }
+  .bb-pnl-neg   { @apply text-red-600 dark:text-red-400; }
+  .bb-mdd       { @apply text-red-600 dark:text-red-400; }
+  .bb-up        { @apply text-emerald-600 dark:text-emerald-400; }
+  .bb-down      { @apply text-red-600 dark:text-red-400; }
+  .bb-neutral   { @apply text-slate-400 dark:text-slate-500; }
+
+  .bb-section   { @apply mb-8; }
+  .bb-grid-gap  { @apply gap-4; }
+
+  /** 제품 페이지 — 역할·위계 (홈/마켓/검증 공통 훅) */
+  .page-shell {
+    @apply min-w-0;
+  }
+
+  .hero-market-summary {
+    @apply space-y-5 mb-6;
+  }
+
+  .summary-main-card {
+    @apply rounded-[8px] border border-slate-200 dark:border-gray-700/80
+      bg-white dark:bg-gray-900
+      px-5 py-5 sm:px-7 sm:py-6 shadow-none;
+  }
+
+  .home-live-signals {
+    @apply mb-7;
+  }
+
+  .home-cta {
+    @apply mb-7;
+  }
+
+  .home-top-strategies {
+    @apply mb-7;
+  }
+
+  .home-watchlist-table {
+    @apply mb-7;
+  }
+
+  .kpi-grid {
+    @apply grid grid-cols-2 sm:grid-cols-4 gap-3;
+  }
+
+  .grid-4 {
+    @apply grid grid-cols-2 sm:grid-cols-4 gap-3;
+  }
+
+  .grid-3 {
+    @apply grid grid-cols-1 sm:grid-cols-3 gap-3;
+  }
+
+  .product-h1 {
+    @apply text-xl sm:text-2xl font-bold text-slate-900 dark:text-slate-50 tracking-tight leading-snug;
+  }
+
+  .product-lead {
+    @apply mt-2 text-[13px] sm:text-[14px] text-slate-600 dark:text-slate-400 leading-relaxed max-w-2xl;
+  }
+
+  .product-section-h {
+    @apply text-base font-semibold text-slate-900 dark:text-slate-100 tracking-tight;
+  }
+
+  .product-section-sub {
+    @apply text-[13px] text-slate-500 dark:text-slate-400 mt-1 leading-relaxed;
+  }
+
+  .equity-section,
+  .breakdown-grid,
+  .trades-log,
+  .market-regime,
+  .pdf-section,
+  .final-judgement {
+    @apply mb-6;
+  }
+
+  .market-main {
+    @apply min-w-0;
+  }
+
+  .market-top-ranking {
+    @apply mb-4;
+  }
+
+  .market-card-list {
+    @apply grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3;
+  }
+
+  /* 시그널 — 멀티 전략 모니터 레이아웃 */
+  .signal-page-layout {
+    @apply flex flex-col lg:flex-row gap-5 lg:gap-6 items-start w-full;
+  }
+
+  .signal-sidebar {
+    @apply w-full lg:w-[min(100%,272px)] shrink-0 lg:sticky lg:top-4 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto;
+  }
+
+  .signal-main {
+    @apply flex-1 min-w-0 flex flex-col gap-5 w-full;
+  }
+
+  .signal-top-status {
+    @apply w-full;
+  }
+
+  .signal-chart-section {
+    @apply w-full;
+  }
+
+  .signal-reason-section {
+    @apply w-full space-y-4;
+  }
+
+  /* 전략 에디터 — 작성 / 프리뷰 2컬럼 */
+  .editor-page-shell {
+    @apply min-w-0;
+  }
+
+  .editor-page-header {
+    @apply w-full;
+  }
+
+  .editor-main-grid {
+    @apply w-full;
+  }
+
+  .editor-left {
+    @apply min-w-0;
+  }
+
+  .editor-right {
+    @apply min-w-0;
+  }
+
+  .editor-card-product {
+    @apply rounded-[8px] border border-slate-200 bg-white !shadow-none dark:border-gray-700 dark:bg-gray-900/40;
+  }
+}
+
+* { scrollbar-width: thin; scrollbar-color: theme(colors.slate.200) transparent; }
+.dark * { scrollbar-color: theme(colors.gray.700) transparent; }
+::-webkit-scrollbar        { width: 4px; height: 4px; }
+::-webkit-scrollbar-thumb  { background: theme(colors.slate.200); border-radius: 4px; }
+.dark ::-webkit-scrollbar-thumb { background: theme(colors.gray.700); }
+
 :focus { outline: none; }
+
+:where(button, a, input, textarea, select, [role="button"]) {
+  transition-property: color, background-color, border-color, opacity, box-shadow;
+  transition-duration: 120ms;
+  transition-timing-function: ease-out;
+}
+
+.bb-btn-dot {
+  display: inline-block;
+  width: 3px;
+  height: 3px;
+  border-radius: 9999px;
+  background: currentColor;
+  opacity: 0.45;
+  animation: bb-btn-dot-pulse 0.9s ease-in-out infinite;
+}
+.bb-btn-dot.animation-delay-150 { animation-delay: 150ms; }
+.bb-btn-dot.animation-delay-300 { animation-delay: 300ms; }
+
+@keyframes bb-btn-dot-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
+}
+
+.bb-tab-underline {
+  position: relative;
+}
+.bb-tab-underline::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--bb-color-primary);
+  border-radius: 1px;
+  transform: scaleX(0);
+  transition: transform 150ms ease-out;
+}
+.bb-tab-underline.active::after,
+.bb-tab-underline[data-active="true"]::after {
+  transform: scaleX(1);
+}

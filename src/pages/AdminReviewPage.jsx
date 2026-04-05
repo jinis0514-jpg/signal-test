@@ -7,14 +7,16 @@ import Badge       from '../components/ui/Badge'
 import Button      from '../components/ui/Button'
 import { cn }      from '../lib/cn'
 import { REVIEW_STATUS } from '../lib/userStrategies'
+import { normalizeStrategyPayload, formatCondition } from '../lib/strategyPayload'
 import { getReviewStrategies } from '../lib/strategyService'
+import { runMarketSubmissionCheck } from '../lib/marketSubmissionGate'
 
 const STATUS_TABS = [
-  { id: 'all',          label: '전체'    },
-  { id: 'submitted',    label: '검토 대기' },
-  { id: 'under_review', label: '검토 중'  },
-  { id: 'approved',     label: '승인됨'   },
-  { id: 'rejected',     label: '반려됨'   },
+  { id: 'all',          label: '전체'     },
+  { id: 'submitted',    label: '검수 대기' },
+  { id: 'under_review', label: '검수 중'   },
+  { id: 'approved',     label: '승인'     },
+  { id: 'rejected',     label: '반려'     },
 ]
 
 function fmtDate(ts) {
@@ -46,7 +48,7 @@ function DetailPanel({ strategy, onAction, onClose }) {
           <Badge variant={statusCfg.badge}>{statusCfg.label}</Badge>
           <button
             onClick={onClose}
-            className="w-5 h-5 flex items-center justify-center rounded-[1px] text-[12px] text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-gray-800 transition-colors"
+            className="w-5 h-5 flex items-center justify-center rounded-md text-[12px] text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-gray-800 transition-colors"
           >
             ✕
           </button>
@@ -54,6 +56,41 @@ function DetailPanel({ strategy, onAction, onClose }) {
       </Card.Header>
 
       <Card.Content className="flex flex-col gap-3 text-[11px]">
+
+        {strategy.adminMetricsLoading && (
+          <p className="text-[10px] text-slate-500">백테스트 지표 계산 중…</p>
+        )}
+        {strategy.adminMetrics && !strategy.adminMetrics.error && (
+          <div>
+            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">자동 검증 백테스트 (1차)</p>
+            <div className="grid grid-cols-2 gap-1.5 text-[11px]">
+              <div className="bg-slate-50/60 dark:bg-gray-800/40 rounded-md px-2 py-1">
+                <span className="text-slate-400">수익률</span>{' '}
+                <span className="font-mono font-semibold">{strategy.adminMetrics.roi ?? '—'}%</span>
+              </div>
+              <div className="bg-slate-50/60 dark:bg-gray-800/40 rounded-md px-2 py-1">
+                <span className="text-slate-400">승률</span>{' '}
+                <span className="font-mono font-semibold">{strategy.adminMetrics.winRate ?? '—'}%</span>
+              </div>
+              <div className="bg-slate-50/60 dark:bg-gray-800/40 rounded-md px-2 py-1">
+                <span className="text-slate-400">MDD</span>{' '}
+                <span className="font-mono font-semibold text-red-500">−{strategy.adminMetrics.mdd ?? '—'}%</span>
+              </div>
+              <div className="bg-slate-50/60 dark:bg-gray-800/40 rounded-md px-2 py-1">
+                <span className="text-slate-400">거래 수</span>{' '}
+                <span className="font-mono font-semibold">{strategy.adminMetrics.trades ?? '—'}</span>
+              </div>
+            </div>
+            {strategy.adminMetrics.validationErrors?.length > 0 && (
+              <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-1">
+                자동 검증 메시지: {strategy.adminMetrics.validationErrors.join(' · ')}
+              </p>
+            )}
+          </div>
+        )}
+        {strategy.adminMetrics?.error && (
+          <p className="text-[10px] text-red-500">{strategy.adminMetrics.error}</p>
+        )}
 
         {/* 기본 정보 그리드 */}
         <div className="grid grid-cols-2 gap-1.5">
@@ -65,7 +102,7 @@ function DetailPanel({ strategy, onAction, onClose }) {
             ['제출일',   fmtDate(strategy.createdAt)],
             ['수정일',   fmtDate(strategy.updatedAt)],
           ].map(([label, value]) => (
-            <div key={label} className="bg-slate-50/60 dark:bg-gray-800/40 rounded-[1px] px-2.5 py-1.5">
+            <div key={label} className="bg-slate-50/60 dark:bg-gray-800/40 rounded-md px-2.5 py-1.5">
               <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-0.5">{label}</p>
               <p className="font-semibold text-slate-700 dark:text-slate-300">{value}</p>
             </div>
@@ -78,7 +115,7 @@ function DetailPanel({ strategy, onAction, onClose }) {
             <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">태그</p>
             <div className="flex flex-wrap gap-1">
               {strategy.tags.map((t) => (
-                <span key={t} className="px-1.5 py-0.5 bg-slate-100 dark:bg-gray-800 rounded-[1px] text-[10px] text-slate-600 dark:text-slate-400">
+                <span key={t} className="px-1.5 py-0.5 bg-slate-100 dark:bg-gray-800 rounded-md text-[10px] text-slate-600 dark:text-slate-400">
                   {t}
                 </span>
               ))}
@@ -91,31 +128,46 @@ function DetailPanel({ strategy, onAction, onClose }) {
           <div>
             <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">진입 조건</p>
             <ul className="space-y-0.5 text-slate-600 dark:text-slate-400">
-              {strategy.conditions.map((c) => (
-                <li key={c}>• {c}</li>
+              {strategy.conditions.map((c, i) => (
+                <li key={i}>• {formatCondition(c)}</li>
               ))}
             </ul>
           </div>
         )}
 
         {/* 리스크 설정 */}
-        {(strategy.stopValue || strategy.takeProfitPct || strategy.posSize) && (
-          <div>
-            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">리스크 설정</p>
-            <div className="flex flex-col gap-0.5 text-slate-600 dark:text-slate-400">
-              {strategy.stopValue    && <span>손절: {strategy.stopType} / {strategy.stopValue}</span>}
-              {strategy.takeProfitPct && <span>익절: {strategy.takeProfitPct}%</span>}
-              {strategy.posSize      && <span>포지션 크기: {strategy.posSize}%</span>}
-              {strategy.maxOpenPos   && <span>최대 동시 포지션: {strategy.maxOpenPos}개</span>}
+        {(() => {
+          const risk = strategy.risk_config && typeof strategy.risk_config === 'object'
+            ? strategy.risk_config
+            : {}
+          const stopVal = risk.stopValue ?? strategy.stopValue
+          const tp = risk.takeProfitPct ?? strategy.takeProfitPct
+          const pos = risk.posSize ?? strategy.posSize
+          const mx = risk.maxOpenPos ?? strategy.maxOpenPos
+          const gap = risk.minSignalGap
+          if (!stopVal && !tp && !pos && !mx && !gap && !risk.allowReentry) return null
+          return (
+            <div>
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">리스크 설정</p>
+              <div className="flex flex-col gap-0.5 text-slate-600 dark:text-slate-400">
+                {stopVal != null && stopVal !== '' && (
+                  <span>손절: {risk.stopType ?? strategy.stopType ?? 'fixed_pct'} / {stopVal}</span>
+                )}
+                {tp != null && tp !== '' && <span>익절: {tp}%</span>}
+                {pos != null && pos !== '' && <span>포지션 크기: {pos}%</span>}
+                {mx != null && mx !== '' && <span>최대 동시 포지션: {mx}개</span>}
+                {gap != null && gap !== '' && <span>최소 진입 간격: {gap}봉</span>}
+                {risk.allowReentry && <span>재진입 허용</span>}
+              </div>
             </div>
-          </div>
-        )}
+          )
+        })()}
 
         {/* 코드 미리보기 */}
         {strategy.mode === 'code' && strategy.code && (
           <div>
             <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">전략 코드</p>
-            <pre className="text-[10px] font-mono bg-gray-950 text-gray-300 rounded-[1px] p-2.5 max-h-[120px] overflow-y-auto whitespace-pre-wrap">
+            <pre className="text-[10px] font-mono bg-gray-950 text-gray-300 rounded-md p-2.5 max-h-[120px] overflow-y-auto whitespace-pre-wrap">
               {strategy.code}
             </pre>
           </div>
@@ -123,7 +175,7 @@ function DetailPanel({ strategy, onAction, onClose }) {
 
         {/* 기존 반려 사유 */}
         {strategy.status === 'rejected' && strategy.reviewNote && (
-          <div className="bg-red-50/60 dark:bg-red-950/20 border border-red-100 dark:border-red-900/40 rounded-[1px] px-2.5 py-2">
+          <div className="bg-red-50/60 dark:bg-red-950/20 border border-red-100 dark:border-red-900/40 rounded-md px-2.5 py-2">
             <p className="text-[9px] font-bold text-red-400 uppercase tracking-widest mb-1">반려 사유</p>
             <p className="text-red-700 dark:text-red-400 leading-relaxed">{strategy.reviewNote}</p>
           </div>
@@ -155,7 +207,7 @@ function DetailPanel({ strategy, onAction, onClose }) {
                 className="
                   w-full text-[11px] px-2.5 py-2
                   border border-slate-200 dark:border-gray-700
-                  rounded-[1px] bg-white dark:bg-gray-900
+                  rounded-md bg-white dark:bg-gray-900
                   text-slate-700 dark:text-slate-300
                   resize-none focus:outline-none focus:border-slate-400
                 "
@@ -169,7 +221,7 @@ function DetailPanel({ strategy, onAction, onClose }) {
               <button
                 onClick={handleReject}
                 className="
-                  flex-1 h-7 text-[11px] font-medium rounded-[1px]
+                  flex-1 h-7 text-[11px] font-medium rounded-md
                   border border-red-200 dark:border-red-900/60
                   text-red-600 dark:text-red-400
                   hover:bg-red-50 dark:hover:bg-red-950/30
@@ -181,8 +233,8 @@ function DetailPanel({ strategy, onAction, onClose }) {
               <button
                 onClick={() => onAction(strategy.id, 'approve')}
                 className="
-                  flex-1 h-7 text-[11px] font-semibold rounded-[1px]
-                  bg-emerald-600 hover:bg-emerald-700
+                  flex-1 h-7 text-[11px] font-semibold rounded-md
+                  bg-blue-600 hover:bg-blue-700
                   text-white transition-colors
                 "
               >
@@ -195,9 +247,9 @@ function DetailPanel({ strategy, onAction, onClose }) {
         {/* 승인/반려 완료 상태 */}
         {!canAction && strategy.status !== 'submitted' && (
           <div className={cn(
-            'text-center py-2 rounded-[1px] text-[11px] font-semibold',
+            'text-center py-2 rounded-md text-[11px] font-semibold',
             strategy.status === 'approved'
-              ? 'bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400'
+              ? 'bg-blue-50 dark:bg-blue-950/25 text-blue-700 dark:text-blue-400'
               : 'bg-red-50 dark:bg-red-950/20 text-red-700 dark:text-red-400',
           )}>
             {strategy.status === 'approved' ? '✓ 마켓 게시 중' : '✕ 반려됨'}
@@ -241,22 +293,27 @@ export default function AdminReviewPage({ currentUser, supaReady, dataVersion = 
   const userStrategies = useMemo(() => {
     return (rows ?? []).map((row) => {
       const risk = (row?.risk_config && typeof row.risk_config === 'object') ? row.risk_config : {}
-      return {
+      const n = normalizeStrategyPayload({
         id: row.id,
         name: row.name,
-        desc: row.description ?? '',
+        description: row.description ?? '',
+        asset: row.asset,
+        timeframe: row.timeframe,
+        mode: row.mode,
+        riskLevel: row.risk_level,
+        tags: row.tags,
+        code: row.code,
+        conditions: row.conditions ?? [],
+        risk_config: risk,
+      })
+      return {
+        ...n,
+        desc: n.description,
         asset: row.asset ?? 'BTC',
         assetType: String(row.asset ?? 'BTC').toLowerCase(),
-        timeframe: row.timeframe ?? '1h',
-        mode: row.mode ?? 'nocode',
         type: row.strategy_type ?? 'trend',
         typeLabel: 'DB 전략',
-        riskLevel: row.risk_level ?? 'mid',
         status: row.status ?? 'draft',
-        tags: Array.isArray(row.tags) ? row.tags : [],
-        code: row.code ?? '',
-        conditions: row.conditions ?? [],
-        risk_config: row.risk_config ?? {},
         reviewNote: row.review_note ?? '',
         createdAt: row.created_at ? Date.parse(row.created_at) : Date.now(),
         updatedAt: row.updated_at ? Date.parse(row.updated_at) : Date.now(),
@@ -267,6 +324,8 @@ export default function AdminReviewPage({ currentUser, supaReady, dataVersion = 
         takeProfitPct: risk.takeProfitPct ?? '',
         posSize: risk.posSize ?? '',
         maxOpenPos: risk.maxOpenPos ?? '1',
+        minSignalGap: risk.minSignalGap ?? '',
+        allowReentry: !!risk.allowReentry,
       }
     })
   }, [rows])
@@ -287,6 +346,52 @@ export default function AdminReviewPage({ currentUser, supaReady, dataVersion = 
     () => selectedId ? reviewable.find((s) => s.id === selectedId) ?? null : null,
     [selectedId, reviewable],
   )
+
+  const [adminMetricsById, setAdminMetricsById] = useState({})
+
+  useEffect(() => {
+    if (!supaReady || !selectedId) return
+    const strat = reviewable.find((s) => s.id === selectedId)
+    if (!strat) return
+    let cancelled = false
+    setAdminMetricsById((prev) => ({ ...prev, [selectedId]: { loading: true } }))
+    ;(async () => {
+      try {
+        const check = await runMarketSubmissionCheck(normalizeStrategyPayload(strat))
+        if (cancelled) return
+        setAdminMetricsById((prev) => ({
+          ...prev,
+          [selectedId]: {
+            loading: false,
+            roi: check.performance?.roi,
+            winRate: check.performance?.winRate,
+            mdd: check.performance?.mdd,
+            trades: check.performance?.totalTrades,
+            validationErrors: check.isValid ? [] : check.errors,
+          },
+        }))
+      } catch (e) {
+        if (!cancelled) {
+          setAdminMetricsById((prev) => ({
+            ...prev,
+            [selectedId]: { loading: false, error: String(e?.message ?? e) },
+          }))
+        }
+      }
+    })()
+    return () => { cancelled = true }
+  }, [selectedId, reviewable, supaReady, dataVersion])
+
+  const detailForPanel = useMemo(() => {
+    if (!detail) return null
+    const m = adminMetricsById[detail.id]
+    const loading = m?.loading === true
+    let adminMetrics = null
+    if (m && !m.loading) {
+      adminMetrics = m.error ? { error: m.error } : m
+    }
+    return { ...detail, adminMetricsLoading: loading, adminMetrics }
+  }, [detail, adminMetricsById])
 
   const counts = useMemo(() => {
     const c = {}
@@ -315,12 +420,12 @@ export default function AdminReviewPage({ currentUser, supaReady, dataVersion = 
       />
 
       {loading && (
-        <div className="mb-3 px-3 py-2 border border-slate-200 bg-slate-50/70 dark:bg-slate-900 dark:border-slate-800 rounded-[2px]">
+        <div className="mb-3 px-3 py-2 border border-slate-200 bg-slate-50/70 dark:bg-slate-900 dark:border-slate-800 rounded-lg">
           <p className="text-[11px] text-slate-500">검수 목록 로딩 중...</p>
         </div>
       )}
       {!loading && error && (
-        <div className="mb-3 px-3 py-2 border border-amber-200 bg-amber-50/70 dark:bg-amber-950/20 dark:border-amber-900/40 rounded-[2px]">
+        <div className="mb-3 px-3 py-2 border border-amber-200 bg-amber-50/70 dark:bg-amber-950/20 dark:border-amber-900/40 rounded-lg">
           <p className="text-[11px] text-amber-700 dark:text-amber-400">{error}</p>
         </div>
       )}
@@ -348,7 +453,7 @@ export default function AdminReviewPage({ currentUser, supaReady, dataVersion = 
         ))}
       </div>
 
-      <div className={cn('grid gap-3', detail ? 'grid-cols-[1fr_340px]' : 'grid-cols-1')}>
+      <div className={cn('grid gap-3', detailForPanel ? 'grid-cols-[1fr_340px]' : 'grid-cols-1')}>
 
         {/* 전략 테이블 */}
         <Card className="overflow-hidden">
@@ -413,7 +518,7 @@ export default function AdminReviewPage({ currentUser, supaReady, dataVersion = 
                           {(s.status === 'submitted' || s.status === 'under_review') && (
                             <button
                               onClick={() => onReviewAction?.(s.id, 'approve')}
-                              className="h-6 px-2 text-[10px] font-semibold rounded-[1px] bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
+                              className="h-6 px-2 text-[10px] font-semibold rounded-md bg-blue-600 hover:bg-blue-700 text-white transition-colors"
                             >
                               승인
                             </button>
@@ -434,10 +539,10 @@ export default function AdminReviewPage({ currentUser, supaReady, dataVersion = 
         </Card>
 
         {/* 상세 패널 */}
-        {detail && (
+        {detailForPanel && (
           <DetailPanel
-            key={detail.id + detail.status}
-            strategy={detail}
+            key={detailForPanel.id + detailForPanel.status}
+            strategy={detailForPanel}
             onAction={handleAction}
             onClose={() => setSelectedId(null)}
           />

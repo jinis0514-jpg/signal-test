@@ -6,21 +6,396 @@
  *   plan:                'free' | 'trial' | 'subscribed',
  *   trialDaysLeft:       7,                         // trial 상태일 때 남은 일수
  *   unlockedStrategyIds: ['btc-trend'],             // 접근 허용된 시뮬레이션 전략 ID 목록
+ *   subscriptionExpiresAt: string | null,             // ISO (subscriptions.expires_at)
+ *   subscriptionSource:  'local' | 'remote',
+ *   subscriptionRecordPlan: string | null,            // DB plan 컬럼 원본 (표시용)
+ *   billingTier:         'starter'|'pro'|'premium'|null, // 클라이언트 표시용 (optional)
  * }
+ *
+ * 정책 요약 (표현 레이어 매핑)
+ * - free     → Free    : 소비 기능 제한, 마켓 제출 불가
+ * - trial    → Starter : 열람·모의·검증·알림 확대, 마켓 제출은 불가(판매자는 Pro만)
+ * - subscribed → Pro   : 소비 전체 + 마켓 제출(최대 MARKET_PIPELINE_MAX_STRATEGIES개)
  */
+
+import { OPERATOR_STRATEGY_SIM_IDS } from '../data/operatorStrategies'
+import { STRATEGIES } from '../data/simulationMockData'
 
 export const TRIAL_DAYS        = 7
 export const FREE_SIGNAL_LIMIT = 3
+/** 무료 플랜에서 저장 가능한 사용자 전략 최대 개수 */
+export const FREE_MAX_SAVED_STRATEGIES = 1
+
+/** 유료(Pro): 마켓 검수 파이프라인 동시 보유 최대 개수 */
+export const MARKET_PIPELINE_MAX_STRATEGIES = 10
+
+/** Premium: 동시 제출·파이프라인 상한 */
+export const MARKET_PIPELINE_MAX_PREMIUM = 20
+
+/** 승인 전략 마켓 게시 기간(월) — 갱신 시 동일 기간 연장 */
+export const MARKET_LISTING_PERIOD_MONTHS = 6
+
+/** 플랜별 월 구독가(원, 표시용) */
+export const PLAN_PRICE_KRW = {
+  starter: 9_900,
+  pro: 39_000,
+  premium: 99_000,
+}
+
+/** 마켓 판매 정산 시 플랫폼 수수료 (%) */
+export const MARKET_SELLER_FEE_PCT_PRO = 30
+export const MARKET_SELLER_FEE_PCT_PREMIUM = 10
+
+/** 전략 1건 마켓 등록 수수료(원) — 0이면 미부과, 정책 확정 후 설정 */
+export const MARKET_LISTING_FEE_KRW = 0
 
 /** 무료 접근 가능한 전략 ID */
 export const FREE_SIM_ID    = 'btc-trend'
 export const FREE_MARKET_ID = 's1'
+
+/**
+ * 무료로 항상 열람 가능한 마켓 전략 ID (기본 1종 외 큐레이션)
+ * @type {Set<string>}
+ */
+export const FREE_MARKET_STRATEGY_EXTRA_IDS = new Set(['op-btc-trend-core'])
+
+/**
+ * 전략별 열람에 필요한 최소 상품 티어 (free / pro / premium)
+ * - free: 누구나
+ * - pro: Starter(체험) · Pro 구독
+ * - premium: Premium 구독만
+ */
+export const STRATEGY_ACCESS_TIER = {
+  FREE: 'free',
+  PRO: 'pro',
+  PREMIUM: 'premium',
+}
+
+function stableHashString(str) {
+  let h = 0
+  const s = String(str ?? '')
+  for (let i = 0; i < s.length; i += 1) {
+    h = ((h << 5) - h) + s.charCodeAt(i)
+    h |= 0
+  }
+  return Math.abs(h)
+}
+
+/**
+ * 마켓 전략 ID → 열람에 필요한 최소 티어 (DB 필드 없이 안정적 분배)
+ * @returns {'free'|'pro'|'premium'}
+ */
+export function getMarketStrategyAccessTier(strategyId) {
+  const id = String(strategyId ?? '')
+  if (!id) return STRATEGY_ACCESS_TIER.PREMIUM
+  if (id === FREE_MARKET_ID || FREE_MARKET_STRATEGY_EXTRA_IDS.has(id)) {
+    return STRATEGY_ACCESS_TIER.FREE
+  }
+  const bucket = stableHashString(id) % 100
+  if (bucket < 18) return STRATEGY_ACCESS_TIER.FREE
+  if (bucket < 78) return STRATEGY_ACCESS_TIER.PRO
+  return STRATEGY_ACCESS_TIER.PREMIUM
+}
+
+/**
+ * 현재 플랜으로 해당 마켓 전략을 열람할 수 있는지
+ */
+export function canAccessMarketStrategy(strategyId, user) {
+  const required = getMarketStrategyAccessTier(strategyId)
+  if (required === STRATEGY_ACCESS_TIER.FREE) return true
+  const tier = getEffectiveProductTier(user ?? INITIAL_USER)
+  if (tier === PLAN_TIER.FREE) return false
+  if (required === STRATEGY_ACCESS_TIER.PRO) {
+    return tier === PLAN_TIER.STARTER || tier === PLAN_TIER.PRO || tier === PLAN_TIER.PREMIUM
+  }
+  if (required === STRATEGY_ACCESS_TIER.PREMIUM) {
+    return tier === PLAN_TIER.PREMIUM
+  }
+  return true
+}
+
+/**
+ * 접근 불가 시 카드·모달용 안내 (티어별 구독 유도)
+ * @returns {string | null} 열람 가능하면 null
+ */
+export function getStrategyAccessUpsellMessage(strategyId, user) {
+  if (canAccessMarketStrategy(strategyId, user)) return null
+  const required = getMarketStrategyAccessTier(strategyId)
+  const tier = getEffectiveProductTier(user ?? INITIAL_USER)
+  if (tier === PLAN_TIER.FREE) {
+    if (required === STRATEGY_ACCESS_TIER.PRO) {
+      return 'Starter 체험 또는 Pro 이상에서 상세 내용을 열 수 있어요.'
+    }
+    return 'Premium 플랜에서 프리미엄 전략 전체를 열람할 수 있어요.'
+  }
+  if (required === STRATEGY_ACCESS_TIER.PREMIUM && tier !== PLAN_TIER.PREMIUM) {
+    return 'Premium으로 업그레이드하면 이 전략을 포함한 전체 카탈로그를 이용할 수 있어요.'
+  }
+  return PLAN_MESSAGES.subscriberOnly
+}
+
+const CATALOG_SIM_IDS = new Set(STRATEGIES.map((s) => s.id))
+
+/**
+ * 체험 시 unlockedStrategyIds에 넣을 시뮬레이션 카탈로그 ID로 정규화
+ * (마켓/운영자 id → btc-trend 등)
+ * @param {object | null} strategy
+ * @returns {string | null}
+ */
+export function resolveSimIdForUnlock(strategy) {
+  if (!strategy || typeof strategy !== 'object') return null
+  const id = String(strategy.id ?? '')
+  const mapped = OPERATOR_STRATEGY_SIM_IDS[id]
+  if (mapped) return mapped
+  if (String(strategy.type ?? 'signal') === 'method' && strategy.linked_signal_strategy_id) {
+    const l = String(strategy.linked_signal_strategy_id)
+    if (CATALOG_SIM_IDS.has(l)) return l
+  }
+  if (CATALOG_SIM_IDS.has(id)) return id
+  return id || null
+}
 
 /** 초기 user 상태 */
 export const INITIAL_USER = {
   plan:                'free',
   trialDaysLeft:       TRIAL_DAYS,
   unlockedStrategyIds: ['btc-trend'],
+  subscriptionExpiresAt: null,
+  subscriptionStartedAt: null,
+  subscriptionStatus:    null,
+  subscriptionSource:    'local',
+  subscriptionRecordPlan:  null,
+  /** 유료 구독 시 pro | premium (DB 티어 컬럼 도입 전 클라이언트 표시) */
+  billingTier:           null,
+  /** false면 마켓 제출 불가(판매자 자격 미충족). 미설정은 허용(하위 호환). */
+  sellerQualified:         undefined,
+  /**
+   * 전략 id → 시그널 알림 세부 설정 (기본 미설정 시 모두 ON으로 간주)
+   * @type {Record<string, { all?: boolean, long?: boolean, short?: boolean, exit?: boolean }>}
+   */
+  strategyNotifySettings: {},
+}
+
+/**
+ * 구독 유도 카피 — 가치 먼저, 제한은 부가 설명 (강제 차단 톤 지양)
+ */
+export const UPSELL_COPY = {
+  valueRealtime:
+    '검증된 성과를 바탕으로 실시간 시그널·포지션·전체 히스토리까지 한 화면에서 이어서 확인할 수 있어요.',
+  fullAccessHint:
+    '구독 시 실시간 실행·전체 시그널·운영 알림까지 제한 없이 이용할 수 있어요.',
+  runRequiresPlan:
+    '이 전략은 구독(또는 체험) 후 실행·실시간 연동을 이용할 수 있어요. 성과는 이미 확인하셨다면, 다음 단계로 이어가실 수 있습니다.',
+  signalTeaser:
+    '무료로는 최근 시그널 일부만 빠르게 확인할 수 있어요. 전체 타임라인·실시간 갱신은 구독 또는 체험으로 열립니다.',
+  editorAfterTest:
+    '테스트로 전략 성과를 확인했어요. 시그널 페이지에서 같은 규칙으로 실시간 실행하려면 구독 또는 체험이 필요합니다.',
+  ctaSubscribe: '지금 시작하기',
+  ctaTrial: '무료 체험 후 구독',
+  ctaTrialShort: '체험하기',
+  chartOverlay: '실시간 차트·진입 표시는 구독 또는 체험에서 더 선명하게 제공됩니다.',
+}
+
+/** 플랜 안내 문구 (UI 공통) */
+export const PLAN_MESSAGES = {
+  saveLimit:
+    '무료 플랜은 전략 1개까지만 저장할 수 있습니다. 기존 전략을 수정하거나, 체험·구독으로 한도를 늘리세요.',
+  subscriberOnly: '이 기능은 구독(또는 체험) 후 사용할 수 있습니다.',
+  notifications: '알림 목록은 Starter(체험) 이상에서 이용할 수 있습니다.',
+  notificationsProDetail:
+    '실시간 알림·전체 목록·읽음 처리는 Starter(체험) 또는 Pro에서 사용할 수 있습니다.',
+  validationLocked:
+    '이 전략의 상세 검증·지표는 Starter(체험) 또는 Pro에서 볼 수 있습니다. 과거 수익은 보장되지 않으며 참고용입니다.',
+  simulationLocked:
+    '실시간 모의투자·전체 시그널은 체험 또는 구독에서 이용할 수 있어요. (성과 지표는 누구나 확인 가능)',
+  marketMoreStrategies:
+    '핵심 성과 지표는 그대로 확인할 수 있어요. 실시간 모의·전체 열람은 체험 또는 구독에서 이어가실 수 있습니다.',
+  strategySubscribeRequired:
+    '구독이 필요합니다. 플랜을 올리면 상세 지표·설명·실행까지 이어질 수 있어요.',
+  marketSubmitProOnly:
+    '전략을 판매(마켓 등록)하려면 Pro(구독)가 필요합니다. 저장·편집은 무료로 가능합니다.',
+  marketSubmitFree:
+    '마켓 등록(검수 요청)은 Pro(구독) 플랜만 이용할 수 있습니다.',
+  marketPipelineCap: (n) =>
+    `Pro 플랜은 최대 ${n}개 전략까지만 제출할 수 있습니다. 승인·반려 후 슬롯이 비면 다시 제출할 수 있습니다.`,
+}
+
+/** UI·정책 표에서 쓰는 티어: free | starter | pro | premium */
+export const PLAN_TIER = {
+  FREE: 'free',
+  STARTER: 'starter',
+  PRO: 'pro',
+  PREMIUM: 'premium',
+}
+
+/**
+ * 내부 plan → 표시 티어 (trial = Starter, subscribed = Pro 또는 Premium)
+ * @returns {'free'|'starter'|'pro'|'premium'}
+ */
+export function getEffectivePlanTier(user) {
+  return getEffectiveProductTier(user)
+}
+
+/**
+ * 상품 티어 (Starter / Pro / Premium 구분)
+ * @returns {'free'|'starter'|'pro'|'premium'}
+ */
+export function getEffectiveProductTier(user) {
+  if (!user) return PLAN_TIER.FREE
+  if (user.plan === 'trial') return PLAN_TIER.STARTER
+  if (user.plan === 'subscribed') {
+    const raw = String(user.billingTier ?? user.subscriptionRecordPlan ?? '').toLowerCase()
+    if (raw === 'premium') return PLAN_TIER.PREMIUM
+    return PLAN_TIER.PRO
+  }
+  return PLAN_TIER.FREE
+}
+
+/** 티어 한글 (비교표·요약) */
+export function getPlanTierDisplayName(tier) {
+  const m = {
+    [PLAN_TIER.FREE]: 'Free',
+    [PLAN_TIER.STARTER]: 'Starter',
+    [PLAN_TIER.PRO]: 'Pro',
+    [PLAN_TIER.PREMIUM]: 'Premium',
+  }
+  return m[tier] ?? 'Free'
+}
+
+/**
+ * 마켓·추천 등 프리미엄 전략 열람 (Starter 이상)
+ * — 시뮬·알림 등 유료 체험 기능과 동일 기준 (전략 ID별 티어는 isMarketLocked 참고)
+ */
+export function canViewPremiumStrategies(user) {
+  return hasPaidPlanFeatures(user)
+}
+
+/** 상세 검증·백테스트 지표 등 고급 검증 UI */
+export function canUseAdvancedValidation(user) {
+  return hasPaidPlanFeatures(user)
+}
+
+/** 인앱 알림 전체(목록·실시간·읽음) */
+export function canReceiveAdvancedNotifications(user) {
+  return hasPaidPlanFeatures(user)
+}
+
+/** 요금제·구독 안내 페이지로 이동 */
+export function navigateToSubscriptionSection(onNavigate) {
+  onNavigate?.('plans')
+}
+
+/**
+ * 플랜 비교표 행 (Free / Starter / Pro / Premium)
+ * @type {{ key: string, label: string, free: string, starter: string, pro: string, premium: string }[]}
+ */
+export const PLAN_COMPARISON_FEATURES = [
+  { key: 'view', label: '전략 열람', free: '일부', starter: '확대', pro: '전체', premium: '전체' },
+  { key: 'sim', label: '모의투자', free: '제한', starter: '확대', pro: '전체', premium: '전체' },
+  { key: 'val', label: '검증·지표', free: '제한', starter: '확대', pro: '전체', premium: '전체·심화' },
+  { key: 'notif', label: '알림', free: '제한', starter: '확대', pro: '전체', premium: '전체·우선' },
+  { key: 'sell', label: '마켓 제출', free: '불가', starter: '불가', pro: `최대 ${MARKET_PIPELINE_MAX_STRATEGIES}개`, premium: `최대 ${MARKET_PIPELINE_MAX_PREMIUM}개` },
+  { key: 'fee', label: '판매 수수료', free: '—', starter: '—', pro: `${MARKET_SELLER_FEE_PCT_PRO}%`, premium: `${MARKET_SELLER_FEE_PCT_PREMIUM}%` },
+]
+
+/** 체험·유료 = 유료 기능 사용 가능 (시뮬 잠금 해제 등) */
+export function hasPaidPlanFeatures(user) {
+  if (!user) return false
+  return user.plan === 'trial' || user.plan === 'subscribed'
+}
+
+/** Pro(구독) — 마켓 제출·검수 요청 */
+export function isProSubscriber(user) {
+  return !!user && user.plan === 'subscribed'
+}
+
+/**
+ * 새 전략 저장(생성) 가능 여부
+ * @param {boolean} isEditingExisting — 이미 서버에 있는 UUID 전략을 수정하는 경우 true
+ */
+export function canSaveNewStrategy(user, savedCount, isEditingExisting) {
+  if (isEditingExisting) return true
+  if (hasPaidPlanFeatures(user)) return true
+  return savedCount < FREE_MAX_SAVED_STRATEGIES
+}
+
+const PIPELINE_STATUSES = new Set(['submitted', 'under_review', 'approved'])
+
+/**
+ * 마켓 검수 파이프라인에 올라간 전략 수 (제출됨·검수중·승인됨)
+ */
+export function countMarketPipelineStrategies(strategies) {
+  if (!Array.isArray(strategies)) return 0
+  return strategies.filter((s) => s && PIPELINE_STATUSES.has(String(s.status ?? ''))).length
+}
+
+/**
+ * 이번 제출 후 파이프라인 슬롯 초과 여부
+ * @param {object[]} strategies — 내 전략 목록
+ * @param {string|null} editingId — 저장 중인 전략 id
+ * @param {boolean} willEnterPipeline — 제출 시 파이프라인에 들어가는지
+ */
+export function wouldExceedMarketPipelineCap(strategies, editingId, willEnterPipeline) {
+  if (!willEnterPipeline) return false
+  const current = editingId ? strategies.find((s) => s.id === editingId) : null
+  const alreadyIn = current && PIPELINE_STATUSES.has(String(current.status ?? ''))
+  const n = countMarketPipelineStrategies(strategies)
+  const next = alreadyIn ? n : n + 1
+  return next > MARKET_PIPELINE_MAX_STRATEGIES
+}
+
+/** 마켓에 제출(검수 요청) 가능 여부 — Pro 이상 + 판매자 자격 */
+export function canSubmitStrategyToMarket(user) {
+  return isProSubscriber(user) && isSellerQualified(user)
+}
+
+/**
+ * 마켓 파이프라인 동시 보유 상한
+ * @returns {number} 구독이 아니면 0
+ */
+export function getMaxMarketStrategies(user) {
+  return getMaxSubmittedStrategies(user)
+}
+
+/**
+ * 마켓 제출·파이프라인 동시 상한 (Pro / Premium)
+ */
+export function getMaxSubmittedStrategies(user) {
+  if (!isProSubscriber(user)) return 0
+  if (getEffectiveProductTier(user) === PLAN_TIER.PREMIUM) return MARKET_PIPELINE_MAX_PREMIUM
+  return MARKET_PIPELINE_MAX_STRATEGIES
+}
+
+/** 마켓 판매 정산 시 플랫폼 수수료율 (0~100) */
+export function getMarketSellerFeePercent(user) {
+  if (!user || user.plan !== 'subscribed') return null
+  return getEffectiveProductTier(user) === PLAN_TIER.PREMIUM
+    ? MARKET_SELLER_FEE_PCT_PREMIUM
+    : MARKET_SELLER_FEE_PCT_PRO
+}
+
+/**
+ * 판매자 자격(자격 테스트·기준 충족) — 명시적으로 false면 제출 불가
+ */
+export function isSellerQualified(user) {
+  if (!user) return false
+  if (user.sellerQualified === false) return false
+  return true
+}
+
+/**
+ * 공개(검수 파이프라인) 전략을 하나 더 올릴 수 있는지
+ * @param {number} currentPipelineCount — submitted+under_review+approved 개수
+ */
+export function canCreatePublicStrategy(user, currentPipelineCount) {
+  const n = Math.max(0, Math.floor(Number(currentPipelineCount) || 0))
+  if (!isProSubscriber(user)) return false
+  return n < MARKET_PIPELINE_MAX_STRATEGIES
+}
+
+/** 인앱 알림 드롭다운(목록·읽음) — 무료는 진입만 막고 안내 */
+export function canUseInAppNotifications(user) {
+  return hasPaidPlanFeatures(user)
 }
 
 /**
@@ -33,12 +408,13 @@ export function isSimLocked(strategyId, user) {
 }
 
 /**
- * 마켓 전략이 잠겨있는지
- * - free 플랜이면서 기본 무료 전략(s1)이 아닌 경우 잠금
+ * 마켓 전략이 잠겨있는지 (플랜별 열람 티어)
+ * - Free: 일부 전략만
+ * - Starter(체험)·Pro: 대부분
+ * - Premium: 전체
  */
 export function isMarketLocked(marketId, user) {
-  if (user.plan !== 'free') return false
-  return marketId !== FREE_MARKET_ID
+  return !canAccessMarketStrategy(marketId, user)
 }
 
 /**
@@ -49,11 +425,49 @@ export function getSignalLimit(user) {
   return user.plan === 'subscribed' ? Infinity : FREE_SIGNAL_LIMIT
 }
 
+function fmtExpiry(iso) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleDateString('ko-KR', { year: 'numeric', month: 'short', day: 'numeric' })
+}
+
 /** 플랜 라벨 (Topbar 표시용) */
 export function getPlanLabel(user) {
-  if (user.plan === 'subscribed') return '구독 중'
-  if (user.plan === 'trial')      return `체험 ${user.trialDaysLeft}일 남음`
-  return '무료'
+  if (!user) return 'Guest'
+  const exp = fmtExpiry(user.subscriptionExpiresAt)
+  const suffix = exp ? ` · 만료 ${exp}` : ''
+  if (user.subscriptionStatus === 'canceled' && user.plan === 'free') {
+    return '무료 · 해지됨'
+  }
+  if (user.plan === 'subscribed') return `Pro · 구독 중${suffix}`
+  if (user.plan === 'trial') return `Starter 체험 ${user.trialDaysLeft}일 남음${suffix}`
+  return 'Free'
+}
+
+/** 마이페이지 등에서 쓰는 플랜 한글 이름 */
+export function getPlanKindLabel(user) {
+  if (!user) return '—'
+  if (user.subscriptionStatus === 'canceled' && user.plan === 'free') {
+    return '무료 (구독 해지됨)'
+  }
+  if (user.subscriptionStatus === 'expired' && user.plan === 'free') {
+    return '무료 (기간 만료)'
+  }
+  if (user.plan === 'subscribed') return 'Pro (구독)'
+  if (user.plan === 'trial') return 'Starter (체험)'
+  return 'Free (무료)'
+}
+
+/** DB status → 배지 라벨 (merge 결과와 함께 사용) */
+export function getSubscriptionStatusLabel(user) {
+  if (!user?.subscriptionStatus) return null
+  const m = {
+    active: '활성',
+    expired: '만료',
+    canceled: '해지됨',
+  }
+  return m[user.subscriptionStatus] ?? user.subscriptionStatus
 }
 
 /**
