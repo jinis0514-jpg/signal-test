@@ -36,7 +36,7 @@ export default function StrategyMarkerLegend({ items = [], className = '' }) {
             style={{ backgroundColor: it.color || '#64748b' }}
             aria-hidden
           />
-          <span className="text-[12px] font-medium text-slate-800 dark:text-slate-100">
+          <span className="max-w-[120px] truncate text-[12px] font-medium text-slate-800 dark:text-slate-100" title={it.strategyLabel || it.strategyKey}>
             {it.strategyLabel || it.strategyKey}
           </span>
         </div>

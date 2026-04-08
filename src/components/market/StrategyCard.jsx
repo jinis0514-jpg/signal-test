@@ -10,9 +10,12 @@ import {
   UPSELL_COPY,
   resolveSimIdForUnlock,
   getStrategyAccessUpsellMessage,
+  isSubscriptionLimitExceeded,
 } from '../../lib/userPlan'
 import { buildStrategyNarrative, CORE_TRUST_BADGE_KEYS } from '../../lib/strategyNarrative'
 import { computeStrategyStatus } from '../../lib/strategyTrust'
+import VerificationBadge from '../verification/VerificationBadge'
+import { computeTrustScore, getTrustGrade } from '../../lib/strategyTrustScore'
 
 function fmtReturn(v) {
   const n = Number(v)
@@ -113,6 +116,20 @@ function StrategyCard({
   const tc = Number(strategy.tradeCount ?? strategy.trades ?? 0)
   const recent7d = Number(strategy.recentRoi7d ?? strategy.roi7d)
   const recent30d = Number(strategy.recentRoi30d ?? strategy.roi30d)
+  const trustScore = useMemo(() => {
+    return computeTrustScore({
+      matchRate: strategy.matchRate,
+      verifiedReturn: strategy.verifiedReturn,
+      liveReturn30d: strategy.recentRoi30d,
+      maxDrawdown: strategy.maxDrawdown ?? strategy.mdd,
+      tradeCount: strategy.tradeCount ?? strategy.trades,
+      hasRealVerification: strategy.hasRealVerification,
+    })
+  }, [strategy])
+
+  const trustGrade = useMemo(() => {
+    return getTrustGrade(trustScore)
+  }, [trustScore])
 
   /* 현재 포지션 방향 (LONG / SHORT / 대기) */
   const currentDir = (() => {
@@ -128,6 +145,11 @@ function StrategyCard({
     if (!isLocked || !strategy?.id) return PLAN_MESSAGES.marketMoreStrategies
     return getStrategyAccessUpsellMessage(strategy.id, user) ?? PLAN_MESSAGES.marketMoreStrategies
   }, [isLocked, strategy?.id, user])
+  const subscribeLimitReached = isSubscriptionLimitExceeded(user?.unlockedStrategyIds, user)
+
+  const showAltBasketNote =
+    String(strategy?.asset ?? '').toUpperCase() === 'ALT'
+    || String(strategy?.assetType ?? '').toLowerCase() === 'alt'
 
   function handleCardClick() {
     onDetail?.()
@@ -160,6 +182,14 @@ function StrategyCard({
           {/* 1) 상단: 이름 + 핵심 배지 */}
           <div className="flex items-start justify-between gap-3 mb-3">
             <div className="min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xs font-bold text-slate-500">
+                  {trustGrade.grade}등급
+                </span>
+                <span className="text-xs text-slate-400">
+                  신뢰도 {trustScore}점
+                </span>
+              </div>
               <p className="text-[16px] font-bold text-slate-900 dark:text-slate-100 leading-tight truncate">
                 {strategy.name}
               </p>
@@ -175,6 +205,10 @@ function StrategyCard({
             <div className="flex items-center gap-1.5 flex-wrap justify-end flex-shrink-0">
               {isUserStrategy && <Badge variant="info">내 전략</Badge>}
               {!isUserStrategy && recCfg && <Badge variant={recCfg.variant}>{recCfg.label}</Badge>}
+              <VerificationBadge
+                level={strategy.verified_badge_level ?? 'backtest_only'}
+                size="xs"
+              />
               {!isMethod && (
                 <Badge variant={riskVariant(riskStatus)}>
                   {riskStatus}
@@ -189,6 +223,14 @@ function StrategyCard({
               )}
             </div>
           </div>
+
+          {showAltBasketNote && (
+            <div className="mb-2 rounded-lg border border-indigo-100 dark:border-indigo-900/40 bg-indigo-50/55 dark:bg-indigo-950/20 px-2.5 py-1.5">
+              <p className="text-[10px] text-indigo-900 dark:text-indigo-200 leading-snug">
+                ALT 전략 성과는 Binance 대표 알트 5종 바스켓 백테스트 평균으로 표시됩니다. (단일 코인 조작 방지)
+              </p>
+            </div>
+          )}
 
           {isMethod && (
             <div className={cn(
@@ -321,7 +363,17 @@ function StrategyCard({
               'mt-1 text-[11px] text-slate-500 dark:text-slate-500 leading-snug line-clamp-1',
               isLocked && 'opacity-60 select-none',
             )}>
-              {String(strategy.fitSummary || strategy.strategy_summary || strategy.description || '').trim() || '—'}
+              {String(strategy.summary || strategy.fitSummary || strategy.strategy_summary || strategy.description || '').trim() || '—'}
+            </p>
+          )}
+          {!isMethod && (
+            <p className={cn('mt-1 text-[10px] text-slate-500 dark:text-slate-400', isLocked && 'opacity-60 select-none')}>
+              신뢰도 {Number.isFinite(Number(strategy.trustScore)) ? Number(strategy.trustScore) : 0}점 · 리스크 {strategy.riskLevelMarket ?? '보통'}
+            </p>
+          )}
+          {!isMethod && strategy.comparisonLine && (
+            <p className={cn('mt-0.5 text-[10px] text-blue-600 dark:text-blue-400 line-clamp-1', isLocked && 'opacity-60 select-none')}>
+              {strategy.comparisonLine}
             </p>
           )}
           {showStrategyNarrative && narrative && (
@@ -350,6 +402,7 @@ function StrategyCard({
           <div className="flex flex-wrap items-center justify-end gap-1.5">
             <Button
               variant="primary" size="sm"
+              disabled={subscribeLimitReached}
               onClick={(e) => {
                 e.stopPropagation()
                 ;(onSubscribe ?? onGoSubscription)?.()

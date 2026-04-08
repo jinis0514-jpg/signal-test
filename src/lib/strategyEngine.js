@@ -14,14 +14,16 @@ import {
 } from './strategyConditions'
 import { ema, sma, rsi, macd, bollingerBands, isVolumeSurgeAt, atr } from './indicators'
 import { normalizeStrategyPayload, DEFAULT_RISK_CONFIG } from './strategyPayload'
+import { dedupeSignalsForStrategy } from './signalDedupe'
+import { normalizeBinanceSymbol } from './marketCandles'
 
 function safeNum(v, fallback = 0) {
   const n = Number(v)
   return Number.isFinite(n) ? n : fallback
 }
 
-function uid(prefix, time, i) {
-  return `${prefix}_${String(time)}_${String(i)}`
+function uid(type, time) {
+  return `${type}_${String(time)}`
 }
 
 /**
@@ -231,7 +233,7 @@ function runUnifiedPositionLoop(series, strategyConfig, startIdx, getWants, note
       if (adv) {
         const closed = position
         signals.push({
-          id: uid('exit', t, i),
+          id: uid('exit', t),
           type: 'EXIT',
           direction: closed.type,
           price,
@@ -256,7 +258,7 @@ function runUnifiedPositionLoop(series, strategyConfig, startIdx, getWants, note
       if (position.type === 'LONG' && wantShort && !wantLong) {
         const closed = position
         signals.push({
-          id: uid('exit', t, i),
+          id: uid('exit', t),
           type: 'EXIT',
           direction: 'LONG',
           price,
@@ -277,7 +279,7 @@ function runUnifiedPositionLoop(series, strategyConfig, startIdx, getWants, note
       if (position.type === 'SHORT' && wantLong && !wantShort) {
         const closed = position
         signals.push({
-          id: uid('exit', t, i),
+          id: uid('exit', t),
           type: 'EXIT',
           direction: 'SHORT',
           price,
@@ -332,7 +334,7 @@ function runUnifiedPositionLoop(series, strategyConfig, startIdx, getWants, note
           blockSameDir = null
           pendingDir = null
           signals.push({
-            id: uid('entry', t, i),
+            id: uid('entry', t),
             type: 'ENTRY',
             direction: 'LONG',
             price,
@@ -357,7 +359,7 @@ function runUnifiedPositionLoop(series, strategyConfig, startIdx, getWants, note
           blockSameDir = null
           pendingDir = null
           signals.push({
-            id: uid('entry', t, i),
+            id: uid('entry', t),
             type: 'ENTRY',
             direction: 'SHORT',
             price,
@@ -389,7 +391,7 @@ function runUnifiedPositionLoop(series, strategyConfig, startIdx, getWants, note
       }
       blockSameDir = null
       signals.push({
-        id: uid('entry', t, i),
+        id: uid('entry', t),
         type: 'ENTRY',
         direction: 'LONG',
         price,
@@ -413,7 +415,7 @@ function runUnifiedPositionLoop(series, strategyConfig, startIdx, getWants, note
       }
       blockSameDir = null
       signals.push({
-        id: uid('entry', t, i),
+        id: uid('entry', t),
         type: 'ENTRY',
         direction: 'SHORT',
         price,
@@ -912,25 +914,34 @@ const CATALOG_ENGINE_DEFAULTS = {
  */
 export function buildEngineConfigFromUserStrategy(userStrat, options = {}) {
   if (!userStrat) {
-    return buildStrategyConfigFromConditions([], {}, { candles: options.candles, lookback: 5, mode: 'trend' })
+    const base = buildStrategyConfigFromConditions([], {}, { candles: options.candles, lookback: 5, mode: 'trend' })
+    return { ...base, id: 'default', chartSymbol: 'BTCUSDT' }
   }
   const p = normalizeStrategyPayload(userStrat)
   const ec = Array.isArray(p.entryConditions) ? p.entryConditions : []
   const xc = Array.isArray(p.exitConditions) ? p.exitConditions : []
   const split = p.entryExitSplit === true && ec.length > 0 && xc.length > 0
-  return buildStrategyConfigFromConditions(split ? ec : p.conditions, p.risk_config, {
-    mode: p.mode,
-    timeframe: p.timeframe,
-    asset: p.asset,
-    candles: options.candles,
-    conditionLogic: p.conditionLogic,
-    minEntryGapMs: p.minEntryGapMs,
-    minBarsBetweenEntries: p.minBarsBetweenEntries,
-    lookback: 5,
-    entryExitSplit: split,
-    entryConditions: split ? ec : undefined,
-    exitConditions: split ? xc : undefined,
-  })
+  const stratId = userStrat?.id ?? p?.id ?? 'user-strategy'
+  const chartSymbol = normalizeBinanceSymbol(
+    userStrat?.symbol || p.symbol || `${p.asset || 'BTC'}USDT`,
+  )
+  return {
+    ...buildStrategyConfigFromConditions(split ? ec : p.conditions, p.risk_config, {
+      mode: p.mode,
+      timeframe: p.timeframe,
+      asset: p.asset,
+      candles: options.candles,
+      conditionLogic: p.conditionLogic,
+      minEntryGapMs: p.minEntryGapMs,
+      minBarsBetweenEntries: p.minBarsBetweenEntries,
+      lookback: 5,
+      entryExitSplit: split,
+      entryConditions: split ? ec : undefined,
+      exitConditions: split ? xc : undefined,
+    }),
+    id: stratId,
+    chartSymbol,
+  }
 }
 
 /**
@@ -944,16 +955,21 @@ export function buildCatalogStrategyEngineConfig(catalogStrategy, options = {}) 
   const sym = catalogStrategy?.symbol ?? ''
   const asset = String(sym).replace(/USDT$/i, '').trim() || 'BTC'
   const tf = catalogStrategy?.timeframe ?? '1h'
-  return buildStrategyConfigFromConditions(catalog.conditions, {}, {
-    mode: catalog.mode,
-    timeframe: tf,
-    asset,
-    lookback: catalog.lookback ?? 5,
-    candles: options.candles,
-    conditionLogic: catalog.conditionLogic ?? null,
-    minEntryGapMs: 0,
-    minBarsBetweenEntries: 1,
-  })
+  const chartSymbol = normalizeBinanceSymbol(sym || `${asset}USDT`)
+  return {
+    ...buildStrategyConfigFromConditions(catalog.conditions, {}, {
+      mode: catalog.mode,
+      timeframe: tf,
+      asset,
+      lookback: catalog.lookback ?? 5,
+      candles: options.candles,
+      conditionLogic: catalog.conditionLogic ?? null,
+      minEntryGapMs: 0,
+      minBarsBetweenEntries: 1,
+    }),
+    id: id || 'catalog',
+    chartSymbol,
+  }
 }
 
 function hasConditionsArray(conditions) {
@@ -1027,7 +1043,15 @@ export function generateSignalsFromSeries(series, strategyConfig = {}) {
  */
 export function generateSignalsFromPrices(prices, strategyConfig = {}) {
   const series = normalizePrices(prices)
-  return generateSignalsFromSeries(series, strategyConfig)
+  const raw = generateSignalsFromSeries(series, strategyConfig)
+  const sid = strategyConfig?.id ?? strategyConfig?.strategyKey ?? 'default'
+  const sym =
+    strategyConfig?.chartSymbol
+    ?? strategyConfig?.symbol
+    ?? (strategyConfig?.asset
+      ? normalizeBinanceSymbol(`${strategyConfig.asset}USDT`)
+      : '')
+  return dedupeSignalsForStrategy(sid, raw, sym)
 }
 
 /**
@@ -1054,6 +1078,20 @@ export function runEnginePipeline(prices, strategyLike, options = {}) {
   } else {
     const p = normalizeStrategyPayload(strategyLike ?? {})
     strategyConfig = buildEngineConfigFromUserStrategy(p, { candles: options.candles })
+  }
+  const pipelineId =
+    strategyConfig?.id
+    ?? options.catalogStrategy?.id
+    ?? strategyLike?.id
+    ?? 'default'
+  if (!strategyConfig.id) {
+    strategyConfig = { ...strategyConfig, id: pipelineId }
+  }
+  if (options.chartSymbol) {
+    strategyConfig = {
+      ...strategyConfig,
+      chartSymbol: normalizeBinanceSymbol(options.chartSymbol),
+    }
   }
   const signals = generateSignalsFromPrices(prices, strategyConfig)
   const trades = calculateTradeHistory(signals)

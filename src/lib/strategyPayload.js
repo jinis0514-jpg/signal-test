@@ -2,6 +2,8 @@
  * 공통 전략 payload 정규화 · 표시 · 엔진 임시 매핑
  */
 
+import { normalizeAltValidationSymbols } from './assetValidationUniverse'
+
 export const DEFAULT_RISK_CONFIG = {
   stopType: 'fixed_pct',
   stopValue: '',
@@ -141,6 +143,7 @@ export function normalizeStrategyPayload(raw) {
       risk_config: { ...DEFAULT_RISK_CONFIG },
       conditionLogic: null,
       desc: '',
+      altValidationSymbols: [],
     }
   }
 
@@ -182,6 +185,10 @@ export function normalizeStrategyPayload(raw) {
     ? entryConditions
     : normalizeConditions(raw.conditions)
 
+  const altValidationSymbols = normalizeAltValidationSymbols(
+    raw.altValidationSymbols ?? raw.alt_validation_symbols,
+  )
+
   return {
     ...raw,
     id: raw.id,
@@ -205,6 +212,7 @@ export function normalizeStrategyPayload(raw) {
     conditionLogic,
     minBarsBetweenEntries: raw.minBarsBetweenEntries,
     minEntryGapMs: raw.minEntryGapMs,
+    altValidationSymbols,
   }
 }
 

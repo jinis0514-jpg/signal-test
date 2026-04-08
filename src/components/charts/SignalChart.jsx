@@ -5,7 +5,6 @@ import {
   HistogramSeries,
   CrosshairMode,
   createSeriesMarkers,
-  createTextWatermark,
 } from 'lightweight-charts'
 import { cn } from '../../lib/cn'
 import EmptyState from '../ui/EmptyState'
@@ -20,7 +19,6 @@ import EmptyState from '../ui/EmptyState'
  * @param {number|null} [props.openEntry] 단일 진입가 라인 (오버레이 없을 때)
  * @param {'LONG'|'SHORT'} [props.openDir]
  * @param {boolean} [props.emphasizeOpen]
- * @param {string} [props.watermark]
  * @param {boolean} [props.showVolume]
  * @param {boolean} [props.isDark]
  * @param {string} [props.className] 래퍼 (차트 영역만)
@@ -32,12 +30,13 @@ function SignalChart({
   openEntry = null,
   openDir = 'LONG',
   emphasizeOpen = true,
-  watermark = '',
   showVolume = true,
   isDark = false,
   className = '',
 }) {
   const containerRef = useRef(null)
+  /** 차트 인스턴스마다 1회만 fitContent — 이후 setData만 하고 뷰(줌/스크롤) 유지 */
+  const initialFitDoneRef = useRef(false)
   const chartRef = useRef(null)
   const candleSeriesRef = useRef(null)
   const volumeSeriesRef = useRef(null)
@@ -70,6 +69,27 @@ function SignalChart({
   }, [candles])
 
   const safeMarkers = useMemo(() => (Array.isArray(markers) ? markers : []), [markers])
+  const emphasizedMarkers = useMemo(() => {
+    if (!Array.isArray(safeMarkers) || safeMarkers.length === 0) return []
+    const sorted = [...safeMarkers].sort((a, b) => Number(a?.time ?? 0) - Number(b?.time ?? 0))
+    const recentCut = Math.max(0, sorted.length - 3)
+    const byTime = new Map()
+    for (let i = 0; i < sorted.length; i += 1) {
+      const t = Number(sorted[i]?.time ?? 0)
+      const list = byTime.get(t) ?? []
+      list.push(i)
+      byTime.set(t, list)
+    }
+    return sorted.map((m, idx) => {
+      const isRecent = idx >= recentCut
+      const sameTimeIdxs = byTime.get(Number(m?.time ?? 0)) ?? []
+      const keepByTime = sameTimeIdxs.length <= 2 || idx === sameTimeIdxs[sameTimeIdxs.length - 1]
+      return {
+        ...m,
+        text: isRecent && keepByTime ? String(m?.text ?? '') : '',
+      }
+    })
+  }, [safeMarkers])
 
   useEffect(() => {
     const el = containerRef.current
@@ -115,7 +135,7 @@ function SignalChart({
         borderColor: isDark ? '#1e293b' : '#e5e7eb',
         timeVisible: true,
         secondsVisible: false,
-        rightOffset: 4,
+        rightOffset: 8,
         barSpacing: 7,
       },
     })
@@ -140,25 +160,6 @@ function SignalChart({
       })
     }
 
-    if (watermark) {
-      try {
-        const pane = chart.panes()[0]
-        createTextWatermark(pane, {
-          horzAlign: 'center',
-          vertAlign: 'center',
-          lines: [
-            {
-              text: watermark,
-              color: isDark ? 'rgba(148,163,184,0.1)' : 'rgba(100,116,139,0.08)',
-              fontSize: 15,
-            },
-          ],
-        })
-      } catch {
-        /* ignore */
-      }
-    }
-
     chartRef.current = chart
     candleSeriesRef.current = candleSeries
     volumeSeriesRef.current = volumeSeries
@@ -172,6 +173,7 @@ function SignalChart({
     ro.observe(el)
 
     return () => {
+      initialFitDoneRef.current = false
       ro.disconnect()
       chart.remove()
       chartRef.current = null
@@ -180,7 +182,7 @@ function SignalChart({
       markersApiRef.current = null
       priceLineApiRef.current = []
     }
-  }, [isDark, watermark, showVolume])
+  }, [isDark, showVolume])
 
   useEffect(() => {
     const candleSeries = candleSeriesRef.current
@@ -210,12 +212,14 @@ function SignalChart({
       )
     }
 
-    const sortedMarkers = [...safeMarkers].sort((a, b) => a.time - b.time)
+    const sortedMarkers = [...emphasizedMarkers].sort((a, b) => a.time - b.time)
     if (sortedMarkers.length > 0) {
       if (markersApiRef.current) {
         markersApiRef.current.setMarkers(sortedMarkers)
       } else {
-        markersApiRef.current = createSeriesMarkers(candleSeries, sortedMarkers)
+        markersApiRef.current = createSeriesMarkers(candleSeries, sortedMarkers, {
+          autoScale: true,
+        })
       }
     } else if (markersApiRef.current) {
       markersApiRef.current.setMarkers([])
@@ -249,18 +253,21 @@ function SignalChart({
       const line = candleSeries.createPriceLine({
         price: Number(openEntry),
         color: dirColor,
-        lineWidth: 1,
+        lineWidth: 2,
         lineStyle: 2,
         axisLabelVisible: true,
-        title: openDir === 'LONG' ? 'LONG' : 'SHORT',
+        title: openDir === 'LONG' ? '현재 진입가 (LONG)' : '현재 진입가 (SHORT)',
       })
       priceLineApiRef.current.push(line)
     }
 
-    chart?.timeScale().fitContent()
+    if (chart && !initialFitDoneRef.current) {
+      chart.timeScale().fitContent()
+      initialFitDoneRef.current = true
+    }
   }, [
     normalizedCandles,
-    safeMarkers,
+    emphasizedMarkers,
     priceLineOverlays,
     openEntry,
     openDir,
@@ -271,7 +278,7 @@ function SignalChart({
   if (normalizedCandles.length === 0) {
     return (
       <div className={cn('flex h-full min-h-[200px] items-center justify-center rounded-lg border border-slate-200 bg-slate-50/50 p-4 dark:border-gray-700 dark:bg-gray-900/30', className)}>
-        <EmptyState title="차트 데이터 없음" description="캔들이 로드되면 표시됩니다." bordered={false} />
+        <EmptyState title="아직 표시할 시그널/캔들 데이터가 없습니다" description="데이터가 들어오면 이 영역에 자동으로 표시됩니다." bordered={false} />
       </div>
     )
   }

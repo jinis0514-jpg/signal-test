@@ -19,6 +19,7 @@ export function useMarketData(symbol = 'BTCUSDT', interval = '5m', options = {})
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [source, setSource] = useState('live')
+  const [lastUpdatedAt, setLastUpdatedAt] = useState(0)
   const firstCompleteRef = useRef(false)
 
   const fetchData = useCallback(async () => {
@@ -31,6 +32,7 @@ export function useMarketData(symbol = 'BTCUSDT', interval = '5m', options = {})
         return next
       })
       setSource('live')
+      setLastUpdatedAt(Date.now())
     } catch (e) {
       setCandles((prev) => {
         const fb = getFallbackCandles(sym, interval, limit)
@@ -38,6 +40,7 @@ export function useMarketData(symbol = 'BTCUSDT', interval = '5m', options = {})
       })
       setSource('fallback')
       setError(e?.message ?? '가격 데이터를 불러오지 못했습니다.')
+      setLastUpdatedAt(Date.now())
     } finally {
       if (!firstCompleteRef.current) {
         setLoading(false)
@@ -49,7 +52,6 @@ export function useMarketData(symbol = 'BTCUSDT', interval = '5m', options = {})
   useEffect(() => {
     firstCompleteRef.current = false
     setLoading(true)
-    setCandles([])
     setError(null)
     fetchData()
     if (pollMs <= 0) return undefined
@@ -57,5 +59,5 @@ export function useMarketData(symbol = 'BTCUSDT', interval = '5m', options = {})
     return () => clearInterval(id)
   }, [fetchData, pollMs])
 
-  return { candles, loading, error, source, refetch: fetchData }
+  return { candles, loading, error, source, lastUpdatedAt, refetch: fetchData }
 }

@@ -1,5 +1,5 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
-import { ChevronDown, Lock, FileText, TrendingDown, TrendingUp, Waves } from 'lucide-react'
+import { useState, useMemo, useEffect } from 'react'
+import { ChevronDown, Lock, FileText, TrendingDown, TrendingUp, Waves, CircleHelp } from 'lucide-react'
 import PageShell    from '../components/ui/PageShell'
 import PageHeader   from '../components/ui/PageHeader'
 import Card         from '../components/ui/Card'
@@ -39,6 +39,17 @@ import { KPI } from '../components/validation/ValidationUi'
 import { computeRecentRoiPct } from '../lib/marketStrategy'
 import { formatDisplayPct, formatDisplayMdd, formatDisplayWinRate, formatDisplayTradeCount } from '../lib/strategyDisplayMetrics'
 import { computeStrategyStatus } from '../lib/strategyTrust'
+import {
+  getAssetClassFromStrategy,
+  getValidationPairsForAssetClass,
+  resolveAltValidationPairs,
+  ALT_BASKET_LABEL_DETAIL,
+  ALT_VALIDATION_MIN,
+  copy as assetCopy,
+} from '../lib/assetValidationUniverse'
+import { runAggregatedValidationForPairs } from '../lib/altBasketBacktest'
+import { buildAltValidationResult } from '../lib/altValidationPresentation'
+import { safeArray } from '../lib/safeValues'
 
 const PERIOD_RATIO = { '3M': 0.25, '6M': 0.5, 'YTD': 0.18, '1Y': 1.0, '3Y': 1.0, 'ALL': 1.0 }
 
@@ -227,13 +238,19 @@ export default function ValidationPage({
     },
   )
   const [period, setPeriod] = useState('1Y')
-  const [viewMode, setViewMode] = useState('backtest') // backtest | realtime
   const [selectedTradeId, setSelectedTradeId] = useState(null)
+  const [tradeDateFrom, setTradeDateFrom] = useState('')
+  const [tradeDateTo, setTradeDateTo] = useState('')
+  const [tradeQuery, setTradeQuery] = useState('')
+  const [tradeSideFilter, setTradeSideFilter] = useState('ALL')
+  const [tradeSort, setTradeSort] = useState('latest')
 
   const [validationPrices, setValidationPrices] = useState([])
   const [validationCandles, setValidationCandles] = useState([])
   const [validationLoading, setValidationLoading] = useState(true)
   const [validationError, setValidationError] = useState('')
+  /** ALT 바스켓: 멀티 심볼 백테스트 후 primaryPipe + 평균 성과 */
+  const [basketRun, setBasketRun] = useState(null)
 
   const u = user ?? { plan: 'free', trialDaysLeft: 7, unlockedStrategyIds: ['btc-trend'] }
 
@@ -250,10 +267,29 @@ export default function ValidationPage({
   const strategy = SAFE_VAL.find((s) => s.id === effectiveId) ?? SAFE_VAL[0] ?? FALLBACK_VAL_STRATEGY
   const simMeta = SAFE_SIM(SIM_STRATEGIES).find((s) => s.id === effectiveId) ?? SAFE_SIM(SIM_STRATEGIES)[0]
 
-  const symbol = useMemo(() => {
-    const raw = userStrat?.asset || strategy?.asset || strategy?.symbol || 'BTCUSDT'
-    return String(raw).trim().toUpperCase()
-  }, [userStrat?.asset, strategy?.asset, strategy?.symbol])
+  const validationAssetClass = useMemo(() => {
+    if (userStrat) return getAssetClassFromStrategy(userStrat)
+    const sid = strategy?.id ?? ''
+    if (sid === 'alt-basket') return 'ALT'
+    const sym = String(strategy?.symbol ?? 'BTCUSDT').toUpperCase()
+    if (sym.startsWith('ETH')) return 'ETH'
+    if (sym.startsWith('SOL')) return 'SOL'
+    return 'BTC'
+  }, [userStrat, strategy?.id, strategy?.symbol])
+
+  const validationStrategyLike = useMemo(() => {
+    if (userStrat) return userStrat
+    if (validationAssetClass === 'ALT') return { asset: 'ALT' }
+    return { asset: validationAssetClass }
+  }, [userStrat, validationAssetClass])
+
+  const { pairs: validationPairs, error: validationPairsError } = useMemo(
+    () => resolveAltValidationPairs(validationStrategyLike),
+    [validationStrategyLike],
+  )
+
+  const isAltBasketValidation = validationAssetClass === 'ALT'
+  const primaryValidationPair = validationPairs[0] ?? 'BTCUSDT'
 
   const interval = useMemo(() => {
     return TIMEFRAME_TO_KLINES_INTERVAL[simMeta.timeframe] ?? '1h'
@@ -268,8 +304,72 @@ export default function ValidationPage({
         setValidationError('')
         setValidationCandles([])
         setValidationPrices([])
+        setBasketRun(null)
 
-        const candles = await getCachedKlines(symbol, interval, 500)
+        if (isAltBasketValidation) {
+          const pErr = validationPairsError
+          const pairs = validationPairs
+          if (pErr || pairs.length < ALT_VALIDATION_MIN) {
+            if (!cancelled) {
+              setValidationError(
+                pErr
+                  || `ALT 검증에는 Binance USDT 심볼을 ${ALT_VALIDATION_MIN}개 이상 선택해야 합니다.`,
+              )
+              setValidationCandles([])
+              setValidationPrices([])
+              setBasketRun(null)
+              setValidationLoading(false)
+            }
+            return
+          }
+          const agg = await runAggregatedValidationForPairs({
+            pairs,
+            interval,
+            limit: 500,
+            period,
+            makeRunStrategyArgs: (aligned, sym) => {
+              if (userStrat) {
+                return [null, { strategyConfig: buildEngineConfigFromUserStrategy(userStrat, { candles: aligned }) }]
+              }
+              return [
+                null,
+                {
+                  strategyConfig: buildCatalogStrategyEngineConfig(
+                    { id: effectiveId, symbol: sym, timeframe: simMeta.timeframe },
+                    { candles: aligned },
+                  ),
+                },
+              ]
+            },
+          })
+          if (cancelled) return
+          if (!agg.primaryCandles.length) {
+            setValidationError('ALT 바스켓 캔들을 불러오지 못했습니다.')
+            setValidationLoading(false)
+            return
+          }
+          setValidationCandles(agg.primaryCandles)
+          setValidationPrices(
+            agg.primaryCandles.map((c) => ({
+              time: c.time,
+              price: c.close,
+            })),
+          )
+          setBasketRun({
+            primaryPipe: agg.primaryPipe,
+            averagedPerf: agg.averagedPerf,
+            recent7dAvg: agg.recent7dAvg,
+            recent30dAvg: agg.recent30dAvg,
+            basketDetail: agg.basketDetail,
+            validationResult: agg.validationResult
+              ?? buildAltValidationResult(agg.averagedPerf, agg.basketDetail),
+          })
+          setValidationLoading(false)
+          return
+        }
+
+        const singlePair = validationPairs[0] ?? getValidationPairsForAssetClass(validationAssetClass)[0] ?? 'BTCUSDT'
+        const candles = await getCachedKlines(singlePair, interval, 500)
         if (cancelled) return
 
         setValidationCandles(candles)
@@ -296,7 +396,18 @@ export default function ValidationPage({
     return () => {
       cancelled = true
     }
-  }, [symbol, interval])
+  }, [
+    isAltBasketValidation,
+    validationPairs,
+    validationPairsError,
+    primaryValidationPair,
+    interval,
+    period,
+    userStrat,
+    effectiveId,
+    simMeta.timeframe,
+    validationAssetClass,
+  ])
 
   /** 시뮬레이션 CHART_DATA 기반 폴백 (엔진 입력용 숫자 시리즈) */
   const fallbackMockPrices = useMemo(() => {
@@ -338,10 +449,10 @@ export default function ValidationPage({
       return buildEngineConfigFromUserStrategy(userStrat, { candles: engineCandlesAligned })
     }
     return buildCatalogStrategyEngineConfig(
-      { id: effectiveId, symbol, timeframe: simMeta.timeframe },
+      { id: effectiveId, symbol: primaryValidationPair, timeframe: simMeta.timeframe },
       { candles: engineCandlesAligned },
     )
-  }, [userStrat, engineCandlesAligned, effectiveId, symbol, simMeta.timeframe])
+  }, [userStrat, engineCandlesAligned, effectiveId, primaryValidationPair, simMeta.timeframe])
 
   const enginePrices = useMemo(
     () => normalizePrices(engineInputPrices),
@@ -363,6 +474,19 @@ export default function ValidationPage({
 
   const { pipe, pipeError } = useMemo(() => {
     if (!enginePrices.length || !candlesForStrategy.length) return { pipe: null, pipeError: '' }
+    if (isAltBasketValidation) {
+      if (!basketRun?.primaryPipe) return { pipe: null, pipeError: '' }
+      return {
+        pipe: {
+          ...basketRun.primaryPipe,
+          performance: {
+            ...basketRun.averagedPerf,
+            totalTrades: basketRun.averagedPerf.totalTrades,
+          },
+        },
+        pipeError: '',
+      }
+    }
     try {
       return {
         pipe: runStrategy(candlesForStrategy, null, { strategyConfig }),
@@ -371,7 +495,7 @@ export default function ValidationPage({
     } catch (e) {
       return { pipe: null, pipeError: String(e?.message ?? e ?? '엔진 실행 실패') }
     }
-  }, [enginePrices, strategyConfig, candlesForStrategy])
+  }, [enginePrices, strategyConfig, candlesForStrategy, isAltBasketValidation, basketRun])
 
   const engineTrades = Array.isArray(pipe?.trades) ? pipe.trades : []
   const engineSignals = Array.isArray(pipe?.signals) ? pipe.signals : []
@@ -397,14 +521,29 @@ export default function ValidationPage({
     avgLoss: safeNum(ext?.avgLoss, 0),
   }), [perf, ext])
 
-  const recent7d = useMemo(
-    () => computeRecentRoiPct(engineTrades, engineCandlesAligned?.length ? { endTime: engineCandlesAligned[engineCandlesAligned.length - 1].time } : {}, 7),
-    [engineTrades, engineCandlesAligned],
-  )
-  const recent30d = useMemo(
-    () => computeRecentRoiPct(engineTrades, engineCandlesAligned?.length ? { endTime: engineCandlesAligned[engineCandlesAligned.length - 1].time } : {}, 30),
-    [engineTrades, engineCandlesAligned],
-  )
+  const recent7d = useMemo(() => {
+    if (basketRun) return basketRun.recent7dAvg
+    return computeRecentRoiPct(
+      engineTrades,
+      engineCandlesAligned?.length ? { endTime: engineCandlesAligned[engineCandlesAligned.length - 1].time } : {},
+      7,
+    )
+  }, [basketRun, engineTrades, engineCandlesAligned])
+
+  const recent30d = useMemo(() => {
+    if (basketRun) return basketRun.recent30dAvg
+    return computeRecentRoiPct(
+      engineTrades,
+      engineCandlesAligned?.length ? { endTime: engineCandlesAligned[engineCandlesAligned.length - 1].time } : {},
+      30,
+    )
+  }, [basketRun, engineTrades, engineCandlesAligned])
+
+  const altValidationView = useMemo(() => {
+    if (!basketRun) return null
+    return basketRun.validationResult
+      ?? buildAltValidationResult(basketRun.averagedPerf, basketRun.basketDetail)
+  }, [basketRun])
 
   const strategyStatus = useMemo(
     () => computeStrategyStatus({ performance: pipe?.performance ?? {}, backtestMeta: { endTime: engineCandlesAligned?.at?.(-1)?.time, timeframe: interval } }),
@@ -478,6 +617,95 @@ export default function ValidationPage({
       }
     })
   }, [engineTrades, engineCandlesAligned, candleIndexByTime, strategyConfig])
+
+  const liveTracking = useMemo(() => {
+    if (!Array.isArray(tradeRows) || tradeRows.length === 0) {
+      return {
+        roi: null,
+        recent7d: null,
+        recent30d: null,
+        trend: '데이터 부족',
+        status: '대기',
+        count: 0,
+      }
+    }
+    const sampleN = Math.max(6, Math.floor(tradeRows.length * 0.35))
+    const liveRows = tradeRows.slice(-sampleN)
+    const roi = liveRows.reduce((s, t) => s + safeNum(t.pnl, 0), 0)
+    const now = Date.now()
+    const d7 = now - 7 * 24 * 3600000
+    const d30 = now - 30 * 24 * 3600000
+    const recent7dLive = liveRows
+      .filter((t) => Number(t.exitTime) >= d7)
+      .reduce((s, t) => s + safeNum(t.pnl, 0), 0)
+    const recent30dLive = liveRows
+      .filter((t) => Number(t.exitTime) >= d30)
+      .reduce((s, t) => s + safeNum(t.pnl, 0), 0)
+    const trend = recent7dLive >= 0 ? '상승 유지' : '약화 경고'
+    const status = recent7dLive >= 0 ? '유효' : '주의'
+    return {
+      roi: +roi.toFixed(2),
+      recent7d: +recent7dLive.toFixed(2),
+      recent30d: +recent30dLive.toFixed(2),
+      trend,
+      status,
+      count: liveRows.length,
+    }
+  }, [tradeRows])
+
+  const regimePerformanceRows = useMemo(() => {
+    const buckets = [
+      { key: '상승장', list: tradeRows.filter((t) => t.trend === '상승장') },
+      { key: '하락장', list: tradeRows.filter((t) => t.trend === '하락장') },
+      { key: '횡보장', list: tradeRows.filter((t) => t.trend === '횡보장') },
+      { key: '고변동성', list: tradeRows.filter((t) => t.vol === '고변동성') },
+      { key: '저변동성', list: tradeRows.filter((t) => t.vol === '저변동성') },
+    ]
+    return buckets.map((b) => {
+      const trades = b.list
+      const pnl = trades.reduce((s, t) => s + safeNum(t.pnl, 0), 0)
+      const wins = trades.filter((t) => safeNum(t.pnl, 0) >= 0).length
+      const winRate = trades.length ? (wins / trades.length) * 100 : null
+      let interpretation = '표본 부족'
+      if (trades.length >= 4) {
+        interpretation = pnl >= 0 ? '현재 전략 우호' : '현재 전략 비우호'
+      }
+      return {
+        key: b.key,
+        pnl: +pnl.toFixed(2),
+        trades: trades.length,
+        winRate: winRate == null ? null : +winRate.toFixed(1),
+        interpretation,
+      }
+    })
+  }, [tradeRows])
+
+  const filteredTradeRows = useMemo(() => {
+    const q = String(tradeQuery ?? '').trim().toLowerCase()
+    const fromTs = tradeDateFrom ? new Date(`${tradeDateFrom}T00:00:00`).getTime() : null
+    const toTs = tradeDateTo ? new Date(`${tradeDateTo}T23:59:59`).getTime() : null
+    const base = tradeRows.filter((t) => {
+      const entryTs = Number(t.entryTime)
+      if (fromTs != null && Number.isFinite(entryTs) && entryTs < fromTs) return false
+      if (toTs != null && Number.isFinite(entryTs) && entryTs > toTs) return false
+      if (tradeSideFilter !== 'ALL' && t.dir !== tradeSideFilter) return false
+      if (!q) return true
+      const hay = [
+        t.dir,
+        t.entryNote,
+        t.exitReason,
+        t.exitNote,
+        t.trend,
+        t.vol,
+      ].join(' ').toLowerCase()
+      return hay.includes(q)
+    })
+    return [...base].sort((a, b) => {
+      const ta = Number(a.entryTime) || 0
+      const tb = Number(b.entryTime) || 0
+      return tradeSort === 'latest' ? tb - ta : ta - tb
+    })
+  }, [tradeRows, tradeQuery, tradeDateFrom, tradeDateTo, tradeSideFilter, tradeSort])
 
   const selectedTrade = useMemo(() => {
     if (!selectedTradeId) return null
@@ -635,6 +863,21 @@ export default function ValidationPage({
         </div>
       )}
 
+      {isAltBasketValidation && (
+        <div className="mb-4 rounded-lg border border-indigo-200 dark:border-indigo-900/45 bg-indigo-50/75 dark:bg-indigo-950/25 px-3 py-2.5">
+          <p className="text-[11px] font-semibold text-indigo-900 dark:text-indigo-200">ALT 바스켓 검증</p>
+          <p className="mt-1 text-[10px] text-indigo-900/90 dark:text-indigo-300/95 leading-relaxed">
+            {assetCopy.altBasketValidation} ({ALT_BASKET_LABEL_DETAIL})
+          </p>
+          <p className="mt-1 text-[10px] text-indigo-800/85 dark:text-indigo-400/90 leading-relaxed">
+            검증 코인:
+            {' '}
+            <span className="font-mono">{validationPairs.join(', ')}</span>
+            . 캔들 차트는 참고용으로 {primaryValidationPair}를 표시합니다. ROI·MDD·승률·거래 수·최근 7·30일은 위 코인별 성과의 단순 평균입니다.
+          </p>
+        </div>
+      )}
+
       {userStrat && (
         <div className="mb-6 flex items-center gap-2 px-3 py-2 bg-blue-50/60 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-800/40 rounded-lg">
           <span className="text-[11px] font-semibold text-blue-700 dark:text-blue-400">
@@ -708,26 +951,80 @@ export default function ValidationPage({
         </div>
       )}
 
-      {/* 1) 상단 기본 성과 — 해부 페이지 진입 요약 (마켓 상세와 역할 분리) */}
+      {/* [1] 상단 성과/상태 요약 */}
       <SectionErrorBoundary>
       <div className={cn('validation-top mb-6', locked && 'opacity-30 pointer-events-none select-none')}>
         <div className="mb-4">
-          <h2 className="product-section-h">기본 성과와 상태</h2>
-          <p className="product-section-sub">
-            선택한 기간·엔진 재현 기준입니다. 아래에서 백테스트와 등록 이후 실적을 나누어 볼 수 있어요.
-          </p>
+          <h2 className="product-section-h">성과 요약</h2>
         </div>
         <div className="kpi-grid">
           <KPI
             label="누적 수익률"
             value={formatDisplayPct(pd.roi)}
             type={pd.roi >= 0 ? 'positive' : 'negative'}
-            sub={`${PERIODS[period].label} · 백테스트(엔진)`}
+            sub={`${PERIODS[period].label}${isAltBasketValidation ? ' · 코인별 평균' : ''}`}
           />
-          <KPI label="MDD" value={formatDisplayMdd(pd.mdd)} type="negative" sub="최대 낙폭" />
-          <KPI label="승률" value={formatDisplayWinRate(pd.winRate)} sub={`총 ${formatDisplayTradeCount(pd.trades)}회`} />
-          <KPI label="거래 수" value={formatDisplayTradeCount(pd.trades)} sub={`Sharpe ${pd.sharpe}`} />
+          <KPI label="MDD" value={formatDisplayMdd(pd.mdd)} type="negative" sub={isAltBasketValidation ? '평균 최대 낙폭' : '최대 낙폭'} />
+          <KPI label="승률" value={formatDisplayWinRate(pd.winRate)} sub={isAltBasketValidation ? `평균 · 총 ${formatDisplayTradeCount(pd.trades)}회(평균)` : `총 ${formatDisplayTradeCount(pd.trades)}회`} />
+          <KPI label="거래 수" value={formatDisplayTradeCount(pd.trades)} sub={`Sharpe ${pd.sharpe}${isAltBasketValidation ? ' · 참고(대표 심볼)' : ''}`} />
         </div>
+        {isAltBasketValidation && altValidationView && (
+          <div className="mt-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-gray-900/40 px-3 py-2.5">
+            <p className="text-[10px] font-bold text-slate-600 dark:text-slate-300 mb-2">
+              ALT · 대표(평균) 외 분포·개별
+            </p>
+            <p className="text-[9px] text-slate-500 mb-2">
+              대표 성과: 평균 ROI·평균 MDD·평균 승률·평균 거래 수(상단 KPI). 아래는 코인별 ROI 분포입니다.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+              <div className="rounded-md border border-slate-200/80 dark:border-slate-700/80 bg-white/90 dark:bg-gray-900/50 px-2 py-1.5">
+                <p className="text-[9px] text-slate-500 uppercase tracking-wide mb-0.5">최고 ROI</p>
+                <p className="font-mono font-semibold text-emerald-700 dark:text-emerald-400">
+                  {altValidationView.best?.symbol}
+                  {' '}
+                  <span className="tabular-nums">{fmtPct(altValidationView.best?.roi)}</span>
+                </p>
+              </div>
+              <div className="rounded-md border border-slate-200/80 dark:border-slate-700/80 bg-white/90 dark:bg-gray-900/50 px-2 py-1.5">
+                <p className="text-[9px] text-slate-500 uppercase tracking-wide mb-0.5">최저 ROI</p>
+                <p className="font-mono font-semibold text-red-700 dark:text-red-400">
+                  {altValidationView.worst?.symbol}
+                  {' '}
+                  <span className="tabular-nums">{fmtPct(altValidationView.worst?.roi)}</span>
+                </p>
+              </div>
+            </div>
+            <p className="mt-2 text-[10px] text-slate-600 dark:text-slate-400">
+              성과 편차(ROI 표준편차):
+              {' '}
+              <span className="font-semibold tabular-nums">{altValidationView.roiStd}%</span>
+              {' · '}
+              <span className="font-semibold">{altValidationView.varianceLabel}</span>
+              <span className="text-slate-500"> (낮음·보통·높음)</span>
+            </p>
+            <p className="mt-1.5 text-[9px] text-slate-500">개별 수익률·MDD·승률</p>
+            <ul className="mt-1 space-y-0.5 max-h-[160px] overflow-y-auto text-[10px] font-mono">
+              {safeArray(altValidationView.perSymbol).map((row) => (
+                <li key={row.symbol} className="flex flex-col gap-0.5 border-b border-slate-100 dark:border-gray-800 pb-1">
+                  <span className="flex justify-between gap-2">
+                    <span>{row.symbol}</span>
+                    <span className="tabular-nums">{fmtPct(row.roi)}</span>
+                  </span>
+                  <span className="text-[9px] text-slate-500 flex justify-between gap-2">
+                    <span>
+                      MDD
+                      {formatDisplayMdd(row.mdd)}
+                    </span>
+                    <span>
+                      승률
+                      {formatDisplayWinRate(row.winRate)}
+                    </span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <div className="kpi-grid mt-3">
           <KPI
             label="최근 7일"
@@ -751,11 +1048,26 @@ export default function ValidationPage({
             <p className="text-[9px] text-slate-400 mt-1">구간 끝 시점 시그널</p>
           </div>
           <KPI label="검증 상태(참고)" value={strategyStatus} sub="샘플·기간 민감" />
+          <KPI label="검증 기간" value={PERIODS[period]?.label ?? period} sub={`${periodCandleCount} 캔들`} />
         </div>
       </div>
       </SectionErrorBoundary>
 
-      {/* 자본 곡선 — 성과 요약 바로 아래 */}
+      {/* [2] 최근 성과 추적 (등록 이후) */}
+      <SectionErrorBoundary>
+      <section className={cn('mb-6', locked && 'opacity-30 pointer-events-none select-none')}>
+        <h3 className="product-section-h mb-2">최근 성과 추적 (등록 이후)</h3>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+          <KPI label="등록 이후 누적" value={liveTracking.roi == null ? '—' : fmtPct(liveTracking.roi)} type={liveTracking.roi == null ? undefined : liveTracking.roi >= 0 ? 'positive' : 'negative'} sub={`최근 ${liveTracking.count}건`} />
+          <KPI label="최근 7일" value={liveTracking.recent7d == null ? '—' : fmtPct(liveTracking.recent7d)} type={liveTracking.recent7d == null ? undefined : liveTracking.recent7d >= 0 ? 'positive' : 'negative'} />
+          <KPI label="최근 30일" value={liveTracking.recent30d == null ? '—' : fmtPct(liveTracking.recent30d)} type={liveTracking.recent30d == null ? undefined : liveTracking.recent30d >= 0 ? 'positive' : 'negative'} />
+          <KPI label="성과 방향" value={liveTracking.trend} />
+          <KPI label="현재 상태" value={liveTracking.status} type={liveTracking.status === '유효' ? 'positive' : liveTracking.status === '주의' ? 'negative' : undefined} />
+        </div>
+      </section>
+      </SectionErrorBoundary>
+
+      {/* [3] 자본곡선 */}
       <SectionErrorBoundary>
       {!locked && equitySeries.length >= 2 && (
         <section className="equity-section">
@@ -784,64 +1096,11 @@ export default function ValidationPage({
       )}
       </SectionErrorBoundary>
 
-      {/* 2) 백테스트 vs 실시간 성과 */}
-      <SectionErrorBoundary>
-      <div className={cn('mb-6', locked && 'opacity-30 pointer-events-none select-none')}>
-        <div className="flex items-center gap-2 mb-2">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">성과 소스</span>
-          <div className="flex items-center gap-0 border border-slate-200 dark:border-gray-700 rounded-lg overflow-hidden">
-            {[
-              { id: 'backtest', label: '백테스트(검증)' },
-              { id: 'realtime', label: '등록 이후(실시간)' },
-            ].map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => setViewMode(t.id)}
-                className={cn(
-                  'px-3 h-8 text-[12px] font-semibold transition-colors border-l first:border-l-0 border-slate-200 dark:border-gray-700',
-                  viewMode === t.id
-                    ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
-                    : 'bg-white text-slate-500 hover:text-slate-700 hover:bg-slate-50 dark:bg-gray-900 dark:text-slate-500 dark:hover:bg-gray-800',
-                )}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        {viewMode === 'backtest' ? (
-          <div className="rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-900/30 px-3 py-2.5 text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
-            <span className="font-semibold text-slate-700 dark:text-slate-300">백테스트(검증 재현)</span>
-            {' '}— 아래 표·차트·국면별 집계는 모두 이 구간의 엔진 거래를 기준으로 합니다. “평균이 좋다”가 아니라 거래별로 깨짐을 확인하세요.
-          </div>
-        ) : (
-          <div className="rounded-lg border border-dashed border-slate-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-3 py-3">
-            <p className="text-[11px] text-slate-800 dark:text-slate-200 font-semibold">등록 이후 · 실시간 트래킹</p>
-            <p className="mt-1 text-[10px] text-slate-500 leading-relaxed">
-              플랫폼에 전략을 등록한 뒤부터의 체결·시그널 이력은 별도 파이프라인에 쌓입니다. 현재 빌드에서는 저장소가 비어 있어 지표를 분리 표시하지 못합니다.
-            </p>
-            <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px]">
-              {['누적', 'MDD', '최근7d', '거래수'].map((k) => (
-                <div key={k} className="rounded-md border border-slate-100 dark:border-gray-800 px-2 py-1.5 text-slate-400">
-                  <span className="text-slate-500 font-semibold">{k}</span>
-                  <span className="block font-mono mt-0.5">—</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-      </SectionErrorBoundary>
-
-      {/* 3) 거래 분석 요약 — 4 + 3 카드 배치 */}
+      {/* [4] 전략 해부 카드 7개 */}
       <SectionErrorBoundary>
       <section className={cn('breakdown-grid', locked && 'opacity-30 pointer-events-none select-none')}>
         <div className="mb-3">
           <h3 className="product-section-h">손익 구조와 해석</h3>
-          <p className="product-section-sub">
-            위 네 가지는 구조의 핵심, 아래 세 가지는 집중도·최근 흐름·근거별 성과를 돕습니다.
-          </p>
         </div>
 
         {/* 첫 줄: 핵심 해부 지표 4개 */}
@@ -892,7 +1151,12 @@ export default function ValidationPage({
         <div className="grid-3 mt-3">
           <Card>
             <Card.Header>
-              <Card.Title className="text-[12px]">상위 거래 집중도</Card.Title>
+              <div className="flex items-center justify-between gap-2">
+                <Card.Title className="text-[12px]">상위 거래 집중도</Card.Title>
+                <button type="button" className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300" title="일부 큰 거래에 수익이 몰렸는지 확인합니다.">
+                  <CircleHelp size={13} />
+                </button>
+              </div>
               <p className="text-[10px] text-slate-400 mt-0.5">상위 5개 거래의 수익 기여 비중</p>
             </Card.Header>
             <Card.Content className="py-3 px-3">
@@ -916,7 +1180,12 @@ export default function ValidationPage({
 
           <Card>
             <Card.Header>
-              <Card.Title className="text-[12px]">최근 성과 약화 여부</Card.Title>
+              <div className="flex items-center justify-between gap-2">
+                <Card.Title className="text-[12px]">최근 성과 약화 여부</Card.Title>
+                <button type="button" className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300" title="과거 대비 최근 성과가 둔화되는지 점검합니다.">
+                  <CircleHelp size={13} />
+                </button>
+              </div>
             </Card.Header>
             <Card.Content className="py-3 px-3">
               {stats2.weakening ? (
@@ -938,7 +1207,14 @@ export default function ValidationPage({
           </Card>
 
           <Card>
-            <Card.Header><Card.Title className="text-[12px]">근거 조합 성과</Card.Title></Card.Header>
+            <Card.Header>
+              <div className="flex items-center justify-between gap-2">
+                <Card.Title className="text-[12px]">근거 조합 성과</Card.Title>
+                <button type="button" className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300" title="어떤 진입 근거 조합이 더 잘 작동했는지 보여줍니다.">
+                  <CircleHelp size={13} />
+                </button>
+              </div>
+            </Card.Header>
             <Card.Content className="py-2 px-0 overflow-x-auto">
               {comboRows.length === 0 ? (
                 <p className="text-[11px] text-slate-500 px-3">근거 데이터가 없습니다.</p>
@@ -969,76 +1245,80 @@ export default function ValidationPage({
       </section>
       </SectionErrorBoundary>
 
-      {/* 4) 시장 상황별 성과 */}
+      {/* [5] 시장 상황별 성과 */}
       <SectionErrorBoundary>
       <section className={cn('market-regime', locked && 'opacity-30 pointer-events-none select-none')}>
         <h3 className="product-section-h mb-3">시장 상황별 성과</h3>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        <Card>
-          <Card.Header><Card.Title className="text-[13px]">추세 국면별</Card.Title></Card.Header>
-          <Card.Content className="space-y-2 text-[11px]">
-            {['상승장', '하락장', '횡보장'].map((k) => {
-              const list = tradeRows.filter((t) => t.trend === k)
-              const sum = list.reduce((s, t) => s + safeNum(t.pnl, 0), 0)
-              return (
-                <div key={k} className="flex items-center justify-between">
-                  <span className="text-slate-500 flex items-center gap-1.5">
-                    {k === '상승장' ? <TrendingUp size={12} /> : k === '하락장' ? <TrendingDown size={12} /> : <Waves size={12} />}
-                    {k}
-                  </span>
-                  <span className="font-mono tabular-nums">
-                    {list.length}건 · {fmtPct(sum, 2)}
-                  </span>
-                </div>
-              )
-            })}
-          </Card.Content>
-        </Card>
-        <Card>
-          <Card.Header><Card.Title className="text-[13px]">변동성 구간별</Card.Title></Card.Header>
-          <Card.Content className="space-y-2 text-[11px]">
-            {['고변동성', '저변동성'].map((k) => {
-              const list = tradeRows.filter((t) => t.vol === k)
-              const sum = list.reduce((s, t) => s + safeNum(t.pnl, 0), 0)
-              return (
-                <div key={k} className="flex items-center justify-between">
-                  <span className="text-slate-500">{k}</span>
-                  <span className="font-mono tabular-nums">
-                    {list.length}건 · {fmtPct(sum, 2)}
-                  </span>
-                </div>
-              )
-            })}
-          </Card.Content>
-        </Card>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-2">
+          {regimePerformanceRows.map((r) => (
+            <Card key={r.key}>
+              <Card.Content className="px-3 py-3">
+                <p className="text-[11px] font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                  {r.key === '상승장' ? <TrendingUp size={12} /> : r.key === '하락장' ? <TrendingDown size={12} /> : r.key === '횡보장' ? <Waves size={12} /> : null}
+                  {r.key}
+                </p>
+                <p className={cn('mt-1 text-[18px] font-bold font-mono tabular-nums', r.pnl >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500')}>
+                  {fmtPct(r.pnl, 2)}
+                </p>
+                <p className="text-[10px] text-slate-500 mt-1">
+                  승률 {r.winRate == null ? '—' : `${r.winRate}%`} · 거래 {r.trades}건
+                </p>
+                <p className="text-[10px] mt-1 font-medium text-slate-600 dark:text-slate-300">{r.interpretation}</p>
+              </Card.Content>
+            </Card>
+          ))}
         </div>
       </section>
       </SectionErrorBoundary>
 
-      {/* 5) 전체 거래 로그 — 해부의 중심 테이블 */}
+      {/* [6] 전체 거래 로그 */}
       <SectionErrorBoundary>
       <section className="trades-log">
       <Card className={locked ? 'opacity-30 pointer-events-none select-none' : ''}>
         <Card.Header className="flex items-center justify-between flex-wrap gap-2">
           <div className="flex items-center gap-2">
             <Card.Title className="product-section-h text-[15px] sm:text-base">전체 거래 로그</Card.Title>
-            <Badge variant="default">{tradeRows.length}건</Badge>
+            <Badge variant="default">{filteredTradeRows.length}건</Badge>
           </div>
-          <p className="text-[10px] text-slate-500 max-w-[280px] leading-snug">
-            한 줄로 “수익이 났다”가 아니라, 각 거래가 어떤 근거로 열리고 어떻게 닫혔는지 추적합니다.
-          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <input type="date" value={tradeDateFrom} onChange={(e) => setTradeDateFrom(e.target.value)} className="h-8 rounded-md border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 text-[11px]" />
+            <input type="date" value={tradeDateTo} onChange={(e) => setTradeDateTo(e.target.value)} className="h-8 rounded-md border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 text-[11px]" />
+            <select value={tradeSideFilter} onChange={(e) => setTradeSideFilter(e.target.value)} className="h-8 rounded-md border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 text-[11px]">
+              <option value="ALL">전체</option>
+              <option value="LONG">LONG</option>
+              <option value="SHORT">SHORT</option>
+            </select>
+            <select value={tradeSort} onChange={(e) => setTradeSort(e.target.value)} className="h-8 rounded-md border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 text-[11px]">
+              <option value="latest">최근순</option>
+              <option value="oldest">오래된순</option>
+            </select>
+            <input
+              type="text"
+              value={tradeQuery}
+              onChange={(e) => setTradeQuery(e.target.value)}
+              placeholder="근거/청산이유 검색"
+              className="h-8 w-[160px] rounded-md border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 text-[11px]"
+            />
+          </div>
         </Card.Header>
+        {isAltBasketValidation && (
+          <div className="px-4 pb-2">
+            <p className="text-[10px] text-amber-900/90 dark:text-amber-200/95 leading-relaxed">
+              바스켓 모드: 체결 로그는 {primaryValidationPair} 기준 예시이며, 상단 요약 KPI는 {validationPairs.length}종 평균입니다.
+            </p>
+          </div>
+        )}
         <div className="overflow-x-auto">
           <table className="w-full">
             <thead>
               <tr className="border-b border-slate-100 dark:border-gray-800">
-                {['진입', '청산', '방향', '손익', '보유', '진입 근거', '청산 이유', '신뢰도', 'MFE', 'MAE', '국면'].map((h) => (
+                {['날짜', '포지션', '진입 시점', '청산 시점', '수익률', '보유 시간', '진입 근거 요약', '청산 이유 요약', '진입 신뢰도', 'MFE', 'MAE', '시장'].map((h) => (
                   <th key={h} className="px-3 py-2.5 text-left text-[10px] font-bold tracking-widest text-slate-400 uppercase whitespace-nowrap">{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-gray-800">
-              {Array.isArray(tradeRows) && tradeRows.map((t) => (
+              {Array.isArray(filteredTradeRows) && filteredTradeRows.map((t) => (
                 <tr
                   key={t.id}
                   onClick={() => setSelectedTradeId(String(t.id))}
@@ -1047,9 +1327,10 @@ export default function ValidationPage({
                     String(selectedTradeId) === String(t.id) && 'bg-blue-50/60 dark:bg-blue-950/20',
                   )}
                 >
+                  <td className="px-3 py-2.5 text-[11px] font-mono text-slate-500 whitespace-nowrap">{fmtMd(t.entryTime)}</td>
+                  <td className="px-3 py-2.5"><Badge variant={t.dir === 'LONG' ? 'long' : 'short'}>{t.dir}</Badge></td>
                   <td className="px-3 py-2.5 text-[11px] font-mono text-slate-500 whitespace-nowrap">{fmtTs(t.entryTime)}</td>
                   <td className="px-3 py-2.5 text-[11px] font-mono text-slate-500 whitespace-nowrap">{fmtTs(t.exitTime)}</td>
-                  <td className="px-3 py-2.5"><Badge variant={t.dir === 'LONG' ? 'long' : 'short'}>{t.dir}</Badge></td>
                   <td className={cn('px-3 py-2.5 text-[11px] font-mono font-bold tabular-nums', safeNum(t.pnl, 0) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500')}>
                     {safeNum(t.pnl, 0) >= 0 ? '+' : ''}{safeNum(t.pnl, 0).toFixed(2)}%
                   </td>
@@ -1065,7 +1346,7 @@ export default function ValidationPage({
             </tbody>
           </table>
         </div>
-        {(!Array.isArray(tradeRows) || tradeRows.length === 0) && showMetrics && (
+        {(!Array.isArray(filteredTradeRows) || filteredTradeRows.length === 0) && showMetrics && (
           <div className="px-3 py-8 text-center">
             <p className="text-[12px] text-slate-400">해당 기간 거래 없음</p>
           </div>
@@ -1074,7 +1355,7 @@ export default function ValidationPage({
       </section>
       </SectionErrorBoundary>
 
-      {/* 6) 개별 거래 상세 보기 */}
+      {/* [7] 개별 거래 상세 */}
       <SectionErrorBoundary>
       {selectedTrade && (
         <div className={cn('mt-6', locked && 'opacity-30 pointer-events-none select-none')}>
@@ -1140,7 +1421,37 @@ export default function ValidationPage({
       )}
       </SectionErrorBoundary>
 
-      {/* 8) PDF·텍스트 — 검증의 중심이 아닌 보조 자료 */}
+      {/* [8] 백테스트 결과 (참고 자료) */}
+      <SectionErrorBoundary>
+      {!locked && (
+        <section className="mt-6">
+          <Card>
+            <Card.Header>
+              <Card.Title className="product-section-h text-[15px]">백테스트 결과</Card.Title>
+            </Card.Header>
+            <Card.Content className="space-y-3">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <KPI label="백테스트 ROI" value={formatDisplayPct(pd.roi)} type={pd.roi >= 0 ? 'positive' : 'negative'} />
+                <KPI label="백테스트 MDD" value={formatDisplayMdd(pd.mdd)} type="negative" />
+                <KPI label="백테스트 승률" value={formatDisplayWinRate(pd.winRate)} />
+                <KPI label="백테스트 거래 수" value={formatDisplayTradeCount(pd.trades)} />
+              </div>
+              <div className="rounded-lg border border-slate-100 dark:border-gray-800 p-2">
+                {equitySeries.length >= 2 ? (
+                  <div className="h-[180px]">
+                    <EquityCurve equity={equitySeries} xLabels={equityXLabels} />
+                  </div>
+                ) : (
+                  <div className="h-[180px] flex items-center justify-center text-[12px] text-slate-500">백테스트 자본곡선 데이터 없음</div>
+                )}
+              </div>
+            </Card.Content>
+          </Card>
+        </section>
+      )}
+      </SectionErrorBoundary>
+
+      {/* [9] 설명 자료 / 최종 판단 */}
       <SectionErrorBoundary>
       {!locked && (
         <section className="pdf-section mt-6">
@@ -1149,7 +1460,6 @@ export default function ValidationPage({
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <div>
                   <Card.Title className="product-section-h text-[15px]">전략 설명 자료</Card.Title>
-                  <p className="text-[10px] text-slate-400 mt-0.5">위의 수치·거래 로그가 검증의 중심입니다. PDF는 참고용입니다.</p>
                 </div>
                 {userStrat?.strategy_pdf_url && (
                   <Button
@@ -1219,9 +1529,8 @@ export default function ValidationPage({
           <Card>
             <Card.Header>
               <Card.Title className="product-section-h text-[15px]">최종 판단</Card.Title>
-              <p className="product-section-sub text-[12px]">국면별·거래별 결과를 한 줄로 압축한 요약입니다.</p>
             </Card.Header>
-            <Card.Content className="grid grid-cols-1 md:grid-cols-3 gap-2 text-[11px]">
+            <Card.Content className="grid grid-cols-1 md:grid-cols-4 gap-2 text-[11px]">
               <div className="rounded-lg border border-slate-100 dark:border-gray-800 px-3 py-2.5">
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">강한 시장</p>
                 <p className="text-slate-700 dark:text-slate-300">
@@ -1251,8 +1560,17 @@ export default function ValidationPage({
                 <p className="text-slate-700 dark:text-slate-300 font-semibold">
                   {stats2.weakening?.weakened ? '주의 (최근 성과 약화)' : strategyStatus === '위험' ? '주의 (리스크 높음)' : '양호'}
                 </p>
-                <p className="mt-1 text-[10px] text-slate-500 leading-relaxed">
-                  “좋아 보이는 평균”이 아니라, 거래 로그에서 손실 패턴/집중도를 직접 확인한 뒤 판단하세요.
+              </div>
+              <div className="rounded-lg border border-red-200/90 dark:border-red-900/50 bg-red-50/60 dark:bg-red-950/25 px-3 py-2.5">
+                <p className="text-[10px] font-bold text-red-500 uppercase tracking-widest mb-1">주의 리스크</p>
+                <p className="text-red-700 dark:text-red-300">
+                  {stats2.topConcentration != null && stats2.topConcentration > 60
+                    ? '수익이 일부 거래에 집중'
+                    : stats2.maxLosingStreak >= 5
+                      ? '연속 손실 구간 큼'
+                      : pd.mdd <= -20
+                        ? '낙폭(MDD) 부담'
+                        : '리스크 보통'}
                 </p>
               </div>
             </Card.Content>
@@ -1303,7 +1621,7 @@ export default function ValidationPage({
       </SectionErrorBoundary>
 
       <SectionErrorBoundary>
-      {!locked && u.plan !== 'subscribed' && (
+      {!locked && !['pro', 'premium'].includes(String(u.plan ?? '').toLowerCase()) && (
         <div className="mb-6 flex items-center justify-between gap-4 px-4 py-3 bg-blue-50/60 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/40 rounded-lg">
           <div className="min-w-0">
             <p className="text-[12px] font-semibold text-slate-800 dark:text-slate-200 leading-snug">
@@ -1339,3 +1657,4 @@ export default function ValidationPage({
     </PageShell>
   )
 }
+

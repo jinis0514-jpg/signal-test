@@ -11,6 +11,7 @@ import { cn } from '../../lib/cn'
  *   currentPnl?: string | null,
  *   tpDistance?: string | null,
  *   slDistance?: string | null,
+ *   confidenceScore?: number | null,
  * }>} props.items
  */
 export default function SignalReasonPanel({ items = [], title = '진입 근거 · 현재 상태', className = '' }) {
@@ -93,11 +94,21 @@ export default function SignalReasonPanel({ items = [], title = '진입 근거 �
             {reasons.length === 0 ? (
               <p className="text-[12px] text-slate-500 pl-1">이 전략은 아직 근거 태그가 없습니다.</p>
             ) : (
-              <ul className="list-disc list-inside space-y-1 pl-0.5 text-[12px] text-slate-700 dark:text-slate-300 leading-relaxed">
+              <div className="flex flex-wrap gap-1.5">
                 {reasons.map((reason, idx) => (
-                  <li key={`${item.strategyKey}-${idx}`}>{reason}</li>
+                  <span
+                    key={`${item.strategyKey}-${idx}`}
+                    className="inline-flex items-center rounded-md border border-slate-200 bg-slate-50/90 px-2 py-0.5 text-[11px] font-medium text-slate-700 dark:border-gray-700 dark:bg-gray-800/60 dark:text-slate-200"
+                  >
+                    {reason}
+                  </span>
                 ))}
-              </ul>
+              </div>
+            )}
+            {Number.isFinite(Number(item.confidenceScore)) && (
+              <p className="mt-2 text-[11px] text-slate-500 dark:text-slate-400">
+                충족도 {Number(item.confidenceScore)}%
+              </p>
             )}
           </div>
         )

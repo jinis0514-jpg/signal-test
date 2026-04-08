@@ -96,6 +96,28 @@ export const STRATEGIES = [
       { dir: 'LONG',  entry: 128,  exit: 122,  pnl: -4.7, win: false },
     ],
   },
+  {
+    id:             'alt-basket',
+    name:           'ALT 바스켓 모니터',
+    symbol:         'DOGEUSDT',
+    timeframe:      '1H',
+    type:           '알트 바스켓',
+    description:    '검증은 대표 알트 5종(DOGE·ADA·AVAX·LINK·DOT) 백테스트 평균 기준입니다. 시그널 차트는 개별 심볼로 전환할 수 있습니다.',
+    roi:            18.2,
+    winRate:        55.0,
+    mdd:            16.0,
+    totalTrades:    86,
+    currentPrice:   0.12,
+    priceChangePct: 1.05,
+    runningStatus:  'running',
+    status:         'not_started',
+    trialDaysLeft:  0,
+    recentTrades: [
+      { dir: 'LONG',  entry: 0.118, exit: 0.124, pnl: 5.1, win: true },
+      { dir: 'SHORT', entry: 0.128, exit: 0.122, pnl: 4.7, win: true },
+      { dir: 'LONG',  entry: 0.115, exit: 0.112, pnl: -2.6, win: false },
+    ],
+  },
 ]
 
 /* ── 시그널 이력 ────────────────────────────── */
@@ -130,6 +152,10 @@ export const SIGNALS = {
     { id: 3, type: 'LONG',  price: 140,  time: '03/23 10:00', pnl: '+8.6%', open: false, note: '상승 모멘텀 포착' },
     { id: 4, type: 'EXIT',  price: 152,  time: '03/22 14:00', pnl: null,    open: false, note: '목표 수익 청산'   },
   ],
+  'alt-basket': [
+    { id: 1, type: 'LONG',  price: 0.118, time: '03/26 10:00', pnl: null,    open: true,  note: '바스켓 구성 알트 예시' },
+    { id: 2, type: 'EXIT',  price: 0.122, time: '03/25 08:00', pnl: '+3.1%', open: false, note: '목표 청산' },
+  ],
 }
 
 /* ── 차트 데이터 ─────────────────────────────── */
@@ -155,6 +181,11 @@ export const CHART_DATA = {
     prices:  [132, 135, 138, 136, 140, 143, 141, 145, 148, 146, 150, 152, 149, 148],
     entries: [4],
     exits:   [11],
+  },
+  'alt-basket': {
+    prices:  [0.112, 0.115, 0.118, 0.121, 0.119, 0.122, 0.124, 0.123, 0.126, 0.128, 0.125, 0.122],
+    entries: [2],
+    exits:   [7],
   },
 }
 

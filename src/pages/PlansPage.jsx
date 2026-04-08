@@ -23,8 +23,12 @@ export default function PlansPage({
   function isPlanCtaDisabled(p) {
     if (!p.billingTier) return false
     if (subscriptionActionLoading) return true
-    if (user?.plan !== 'subscribed') return false
-    const bt = user?.billingTier === 'premium' ? 'premium' : 'pro'
+    const currentPlan = String(user?.plan ?? 'free').toLowerCase()
+    const bt =
+      currentPlan === 'premium'
+        ? 'premium'
+        : (currentPlan === 'pro' || currentPlan === 'subscribed' ? 'pro' : 'free')
+    if (currentPlan === 'free' || currentPlan === 'standard') return false
     if (p.billingTier === 'premium' && bt === 'pro') return false
     return true
   }
@@ -95,24 +99,24 @@ export default function PlansPage({
       </div>
 
       <div className="mt-8 rounded-[10px] border border-slate-200 bg-white p-5 dark:border-gray-700 dark:bg-gray-900/50">
-        <h3 className="text-[15px] font-bold text-slate-900 dark:text-slate-100">7일 무료 체험</h3>
+        <h3 className="text-[15px] font-bold text-slate-900 dark:text-slate-100">결제 반영 상태</h3>
         <p className="mt-1 text-[13px] leading-relaxed text-slate-600 dark:text-slate-400">
-          유료 결제 없이 Pro에 가까운 열람·시그널 범위를 먼저 경험해 볼 수 있어요. 이후에도 무료 플랜으로 계속 이용할 수 있습니다.
+          결제 완료 후에는 서버 웹훅이 `user_plans.plan`을 갱신합니다. 프론트는 플랜을 직접 변경하지 않고 이 상태를 다시 조회해 반영합니다.
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
           <Button
             variant="secondary"
             size="md"
             type="button"
-            disabled={!loggedIn || subscriptionActionLoading || user?.plan === 'trial'}
+            disabled={!loggedIn || subscriptionActionLoading}
             loading={subscriptionActionLoading}
             onClick={() => onStartTrial?.()}
           >
-            {user?.plan === 'trial' ? '체험 중' : '무료 체험 시작'}
+            플랜 상태 새로고침
           </Button>
           {!loggedIn && (
             <Button variant="primary" size="md" type="button" onClick={() => onGoAuth?.()}>
-              로그인하고 체험하기
+              로그인하고 플랜 확인
             </Button>
           )}
         </div>

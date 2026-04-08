@@ -16,6 +16,51 @@ function clamp(n, a, b) {
   return Math.max(a, Math.min(b, n))
 }
 
+function toMarketStateLabel(v) {
+  const s = String(v ?? '').toLowerCase()
+  if (s.includes('횡보') || s.includes('range')) return '횡보'
+  if (s.includes('상승') || s.includes('bull') || s.includes('up')) return '상승'
+  if (s.includes('하락') || s.includes('bear') || s.includes('down')) return '하락'
+  return '횡보'
+}
+
+export function computeTrustScore(raw = {}, perf = {}) {
+  const badge = String(raw?.verified_badge_level ?? '')
+  const matchRate = Number(raw?.match_rate ?? raw?.verification_summary?.match_rate ?? 0)
+  const livePerf = Number(raw?.recentRoi30d ?? raw?.roi30d ?? perf?.recentRoi30d ?? 0)
+
+  let score = 35
+  if (badge === 'trade_verified') score += 35
+  else if (badge === 'live_verified') score += 20
+  else score += 8
+
+  const mr = Number.isFinite(matchRate) ? clamp(matchRate, 0, 100) : 0
+  score += mr * 0.2
+
+  if (Number.isFinite(livePerf)) {
+    score += clamp(livePerf, -15, 30) * 0.5
+  }
+  return Math.round(clamp(score, 0, 100))
+}
+
+function buildOneLineSummary(raw, { totalReturnPct, maxDrawdown, winRate }) {
+  if (typeof raw?.summary === 'string' && raw.summary.trim()) return raw.summary.trim()
+  const market = toMarketStateLabel(raw?.market_condition)
+  const style = totalReturnPct >= 20 ? '공격형' : maxDrawdown <= 15 ? '안정형' : winRate >= 55 ? '균형형' : '추세 대응형'
+  return `이 전략은 ${market} 시장에 맞춘 ${style} 전략입니다`
+}
+
+function deriveStrategyTypeLabel({ totalReturnPct, maxDrawdown, tradeCount, recentRoi7d }) {
+  const mdd = Math.abs(Number(maxDrawdown) || 0)
+  const ret = Number(totalReturnPct) || 0
+  const tc = Number(tradeCount) || 0
+  const r7 = Number(recentRoi7d) || 0
+  if (mdd <= 12 && tc >= 40) return '안정형'
+  if (ret >= 25 && mdd >= 18) return '공격형'
+  if (tc >= 80 && Math.abs(r7) <= 4) return '단타형'
+  return '추세형'
+}
+
 /**
  * 최근 N일 성과(%) — 엔진 거래 기록 + backtest_meta 기준.
  * - bt.endTime이 있으면 그 시점을 "현재"로 간주 (재현 가능한 검증 구조와 일관)
@@ -205,6 +250,16 @@ export function normalizeMarketStrategy(raw) {
   })
   const riskLevelMarket = mapTrustToRiskLevelMarket(trustStatus)
   const monthlyPriceKrw = deriveMonthlyPriceKrw(raw, perf)
+  const summary = buildOneLineSummary(raw, { totalReturnPct, maxDrawdown, winRate })
+  const trustScore = computeTrustScore(
+    { ...raw, recentRoi30d, roi30d: recentRoi30d },
+    { ...perf, recentRoi30d },
+  )
+
+  const styleTypeLabel = deriveStrategyTypeLabel({ totalReturnPct, maxDrawdown, tradeCount, recentRoi7d })
+  const normalizedTypeLabel = String(raw?.type ?? 'signal') === 'method'
+    ? (raw?.typeLabel ?? '매매법')
+    : styleTypeLabel
 
   return {
     ...raw,
@@ -225,6 +280,10 @@ export function normalizeMarketStrategy(raw) {
     monthlyPriceKrw,
     monthly_price: monthlyPriceKrw,
     riskLevelMarket,
+    typeLabel: normalizedTypeLabel,
+    strategyTypeLabel: styleTypeLabel,
+    summary,
+    trustScore,
   }
 }
 
@@ -276,6 +335,7 @@ function deriveThresholdBadges(s) {
 export function assignMarketBadges(strategies) {
   if (!Array.isArray(strategies) || strategies.length === 0) return strategies
 
+  const avgRoi = strategies.reduce((acc, s) => acc + safeNum(s.totalReturnPct, 0), 0) / Math.max(strategies.length, 1)
   const scores = strategies.map((s) => safeNum(s.recommendationScore, -1e9))
   const sorted = [...scores].sort((a, b) => b - a)
   const k = Math.max(1, Math.ceil(sorted.length * 0.35))
@@ -289,6 +349,21 @@ export function assignMarketBadges(strategies) {
         list.unshift({ key: 'recommended', label: '추천', variant: 'info' })
       }
     }
-    return { ...s, marketBadges: list }
+    const sortedRoi = [...strategies]
+      .map((x) => safeNum(x.totalReturnPct, 0))
+      .sort((a, b) => b - a)
+    const idx = sortedRoi.findIndex((r) => r <= safeNum(s.totalReturnPct, 0))
+    const rankPct = idx < 0 ? 100 : Math.max(1, Math.round(((idx + 1) / Math.max(sortedRoi.length, 1)) * 100))
+    const roiVsAveragePct = +(safeNum(s.totalReturnPct, 0) - avgRoi).toFixed(1)
+    const comparisonLine = rankPct <= 10
+      ? `상위 10% 전략 · 평균 대비 ${roiVsAveragePct >= 0 ? '+' : ''}${roiVsAveragePct}% 성과`
+      : `평균 대비 ${roiVsAveragePct >= 0 ? '+' : ''}${roiVsAveragePct}% 성과`
+    return {
+      ...s,
+      marketBadges: list,
+      rankPercentile: rankPct,
+      roiVsAveragePct,
+      comparisonLine,
+    }
   })
 }

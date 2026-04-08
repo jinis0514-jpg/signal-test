@@ -13,6 +13,7 @@ import {
   DEFAULT_RISK_CONFIG,
 } from './strategyPayload'
 import { buildCanonicalCodeFromPayload } from './strategyCodeExport'
+import { normalizeAltValidationSymbols } from './assetValidationUniverse'
 
 const LS_KEY     = 'bb_user_strategies'
 const LS_KEY_OLD = 'bb_strategies'          // 이전 키 (마이그레이션용)
@@ -46,7 +47,7 @@ export const ASSET_TO_SIM_ID = {
   BTC: 'btc-trend',
   ETH: 'eth-range',
   SOL: 'sol-momentum',
-  ALT: 'btc-trend',
+  ALT: 'alt-basket',
 }
 
 /* ── seed 기반 mock 메트릭 ──────────────────── */
@@ -107,6 +108,9 @@ export function upsertUserStrategy(data, status = 'submitted') {
   const metricsObj = generateMockMetrics(p.name, p.riskLevel)
   const risk = { ...DEFAULT_RISK_CONFIG, ...p.risk_config }
   const canonicalCode = buildCanonicalCodeFromPayload(data)
+  const altValidationSymbols = normalizeAltValidationSymbols(
+    p.altValidationSymbols ?? data?.alt_validation_symbols,
+  )
 
   const strategy = {
     id:        p.id || data.id || `user-${uuid()}`,
@@ -129,6 +133,7 @@ export function upsertUserStrategy(data, status = 'submitted') {
     conditionLogic: p.conditionLogic ?? null,
     risk_config:  risk,
     code:         canonicalCode,
+    altValidationSymbols,
 
     metrics: {
       roi: metricsObj.roi,

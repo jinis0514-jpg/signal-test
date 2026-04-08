@@ -12,6 +12,7 @@ export const VAL_STRATEGIES = [
   { id: 'eth-range',    name: 'ETH Range Scalper',   symbol: 'ETHUSDT', type: '레인지'   },
   { id: 'btc-breakout', name: 'BTC Breakout Hunter', symbol: 'BTCUSDT', type: '돌파'     },
   { id: 'sol-momentum', name: 'SOL Momentum',        symbol: 'SOLUSDT', type: '모멘텀'   },
+  { id: 'alt-basket',   name: 'ALT 바스켓 모니터',   symbol: 'DOGEUSDT', type: '알트 바스켓' },
 ]
 
 /* ── 기간별 통계 슬라이스 정의 ──────────── */

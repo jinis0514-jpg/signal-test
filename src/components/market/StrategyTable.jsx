@@ -8,7 +8,9 @@ import {
   UPSELL_COPY,
   resolveSimIdForUnlock,
   getStrategyAccessUpsellMessage,
+  isSubscriptionLimitExceeded,
 } from '../../lib/userPlan'
+import VerificationBadge from '../verification/VerificationBadge'
 
 /* 열 너비 — 헤더·데이터 행 공유 */
 const COL = {
@@ -17,6 +19,7 @@ const COL = {
   win:    'w-[50px] flex-shrink-0 text-right',
   mdd:    'w-[50px] flex-shrink-0 text-right',
   trades: 'w-[44px] flex-shrink-0 text-right',
+  verify: 'w-[64px] flex-shrink-0',
   status: 'w-[44px] flex-shrink-0',
   rec:    'w-[40px] flex-shrink-0',
   action: 'w-[80px] flex-shrink-0 text-right',
@@ -41,6 +44,7 @@ function TableRow({ strategy, onDetail, user, onStartTrial, onSimulate, onGoSubs
   const lockHint = locked
     ? (getStrategyAccessUpsellMessage(strategy.id, user) ?? PLAN_MESSAGES.marketMoreStrategies)
     : ''
+  const subscribeLimitReached = isSubscriptionLimitExceeded(user?.unlockedStrategyIds, user)
   const isMethod = String(strategy?.type ?? 'signal') === 'method'
 
   return (
@@ -93,6 +97,15 @@ function TableRow({ strategy, onDetail, user, onStartTrial, onSimulate, onGoSubs
         <span className="text-[12px] text-slate-400 tabular-nums">{tc}</span>
       </div>
 
+      {/* 인증 */}
+      <div className={COL.verify}>
+        <VerificationBadge
+          level={strategy.verified_badge_level ?? 'backtest_only'}
+          size="xs"
+          showLabel={false}
+        />
+      </div>
+
       {/* 상태 */}
       <div className={COL.status}>
         {statusCfg
@@ -113,7 +126,12 @@ function TableRow({ strategy, onDetail, user, onStartTrial, onSimulate, onGoSubs
       <div className={COL.action} onClick={(e) => e.stopPropagation()}>
         {locked ? (
           <div className="flex flex-col items-end gap-1" title={lockHint}>
-            <Button variant="primary" size="sm" onClick={() => (onSubscribe ?? onGoSubscription)?.()}>
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={subscribeLimitReached}
+              onClick={() => (onSubscribe ?? onGoSubscription)?.()}
+            >
               {UPSELL_COPY.ctaSubscribe}
             </Button>
             <Button
@@ -147,6 +165,7 @@ export default function StrategyTable({ strategies, onDetail, user, onStartTrial
         <span className={cn(COL.win,    H)}>Win%</span>
         <span className={cn(COL.mdd,    H)}>MDD</span>
         <span className={cn(COL.trades, H)}>거래</span>
+        <span className={cn(COL.verify, H)}>인증</span>
         <span className={cn(COL.status, H)}>상태</span>
         <span className={cn(COL.rec,    H)}>추천</span>
         <span className={cn(COL.action, H)}>액션</span>

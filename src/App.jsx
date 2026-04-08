@@ -15,19 +15,14 @@ import {
   PLAN_MESSAGES,
   canSubmitStrategyToMarket,
   wouldExceedMarketPipelineCap,
-  MARKET_PIPELINE_MAX_STRATEGIES,
   countMarketPipelineStrategies,
   getMaxSubmittedStrategies,
 } from './lib/userPlan'
 import { runMarketSubmissionCheck } from './lib/marketSubmissionGate'
 import {
-  fetchMySubscription,
-  mergeSubscriptionIntoUser,
-  startTrial,
-  startPaidPlan,
-  cancelMySubscription,
-  SubscriptionServiceError,
-} from './lib/subscriptionService'
+  fetchMyUserPlan,
+  mergeUserPlanIntoUser,
+} from './lib/userPlanService'
 import { loadUserStrategies, saveUserStrategies, upsertUserStrategy } from './lib/userStrategies'
 import AdminReviewPage from './pages/AdminReviewPage'
 import { supabase, isSupabaseConfigured } from './lib/supabase'
@@ -43,9 +38,6 @@ import {
   formatReviewRejected,
   formatStrategySubmitted,
   formatStrategyUnderReview,
-  formatSystemTrialStarted,
-  formatSystemSubscribed,
-  formatSystemCanceled,
 } from './lib/notificationService'
 import { useNotifications } from './hooks/useNotifications'
 import { useInAppNotifications } from './context/InAppNotificationContext'
@@ -64,7 +56,7 @@ const VALID_APP_PAGES = new Set([
 const LS_USER     = 'bb_user'
 const LS_STRATEGY = 'bb_strategy'
 
-/** localStorage에서 user 로드 (플랜은 로그인 후 Supabase subscriptions가 단일 소스) */
+/** localStorage에서 user 로드 (플랜은 로그인 후 Supabase user_plans가 단일 소스) */
 function loadUser() {
   try {
     const raw = localStorage.getItem(LS_USER)
@@ -304,14 +296,14 @@ export default function App() {
   const refreshSubscription = useCallback(async () => {
     if (!supaReady || !currentUser?.id) return
     try {
-      const row = await fetchMySubscription(currentUser.id)
-      setUser((prev) => mergeSubscriptionIntoUser(prev, row))
+      const row = await fetchMyUserPlan(currentUser.id)
+      setUser((prev) => mergeUserPlanIntoUser(prev, row))
     } catch (e) {
-      console.warn('구독 정보 동기화 실패:', e)
+      console.warn('플랜 정보 동기화 실패:', e)
     }
   }, [supaReady, currentUser?.id])
 
-  /* 로그인 시 subscriptions → user (DB 단일 소스) */
+  /* 로그인 시 user_plans → user (DB 단일 소스) */
   useEffect(() => {
     refreshSubscription()
   }, [refreshSubscription])
@@ -507,129 +499,43 @@ export default function App() {
     setPage(target.page)
   }
 
-  /**
-   * 7일 무료 체험 (subscriptions.startTrial → merge)
-   * @param {string} [strategyId] 마켓/시뮬에서 잠금 해제용으로 unlockedStrategyIds에 추가
-   */
+  /** 체험/구독은 서버 결제·웹훅 기반. 프론트는 직접 플랜 갱신하지 않음. */
   async function handleStartTrial(strategyId) {
-    const sid = typeof strategyId === 'string' && strategyId.length > 0 ? strategyId : null
+    void strategyId
     if (!supaReady || !currentUser?.id) {
-      setAuthError('체험을 시작하려면 Supabase에 로그인해 주세요.')
+      setAuthError('로그인 후 결제를 진행해 주세요.')
       return
     }
     setSubscriptionFeedback({ ok: '', err: '' })
-    setSubscriptionActionLoading(true)
-    try {
-      setAuthError('')
-      await startTrial(currentUser.id)
-      const row = await fetchMySubscription(currentUser.id)
-      setUser((prev) => {
-        const merged = mergeSubscriptionIntoUser(prev, row)
-        if (sid == null) return merged
-        return {
-          ...merged,
-          unlockedStrategyIds: [...new Set([...(merged.unlockedStrategyIds ?? []), sid])],
-        }
-      })
-      setSubscriptionFeedback({ ok: '7일 무료 체험이 시작되었습니다.', err: '' })
-      try {
-        await createNotification({
-          userId: currentUser.id,
-          type: NOTIFICATION_TYPES.SYSTEM,
-          ...formatSystemTrialStarted(),
-        })
-      } catch {
-        /* ignore */
-      }
-    } catch (e) {
-      const msg = e instanceof SubscriptionServiceError
-        ? e.message
-        : (e?.message ?? '체험 시작에 실패했습니다.')
-      setAuthError(msg)
-      setSubscriptionFeedback({ ok: '', err: msg })
-    } finally {
-      setSubscriptionActionLoading(false)
-    }
+    setSubscriptionFeedback({
+      ok: '결제/체험 요청이 접수되었습니다. 웹훅 반영 후 플랜을 다시 조회합니다.',
+      err: '',
+    })
+    await refreshSubscription()
   }
 
-  /**
-   * mock 유료 전환 (startPaidPlan → merge) + billingTier(pro|premium)
-   * 이미 Pro 구독 중이면 Premium만 클라이언트 티어 업그레이드 (DB는 추후 메타 컬럼으로 이전 가능)
-   */
   async function handleSubscribe(billingTier = 'pro') {
+    void billingTier
     if (!supaReady || !currentUser?.id) {
       setAuthError('로그인 후 이용할 수 있습니다.')
       return
     }
     setSubscriptionFeedback({ ok: '', err: '' })
-    setSubscriptionActionLoading(true)
-    try {
-      setAuthError('')
-      const wantPremium = billingTier === 'premium'
-      if (user?.plan === 'subscribed') {
-        const cur = user?.billingTier === 'premium' ? 'premium' : 'pro'
-        if (wantPremium && cur === 'pro') {
-          setUser((prev) => ({ ...prev, billingTier: 'premium' }))
-          setSubscriptionFeedback({ ok: 'Premium 혜택이 적용되었습니다. (결제 연동 시 영수증·기간이 함께 표시됩니다.)', err: '' })
-          return
-        }
-      }
-      await startPaidPlan(currentUser.id, 'subscribed')
-      const row = await fetchMySubscription(currentUser.id)
-      setUser((prev) => {
-        const merged = mergeSubscriptionIntoUser(prev, row)
-        return {
-          ...merged,
-          billingTier: wantPremium ? 'premium' : 'pro',
-        }
-      })
-      setSubscriptionFeedback({ ok: '유료 플랜이 활성화되었습니다.', err: '' })
-      try {
-        await createNotification({
-          userId: currentUser.id,
-          type: NOTIFICATION_TYPES.SYSTEM,
-          ...formatSystemSubscribed(),
-        })
-      } catch {
-        /* ignore */
-      }
-    } catch (e) {
-      const msg = e instanceof SubscriptionServiceError
-        ? e.message
-        : (e?.message ?? '구독 처리에 실패했습니다.')
-      setAuthError(msg)
-      setSubscriptionFeedback({ ok: '', err: msg })
-    } finally {
-      setSubscriptionActionLoading(false)
-    }
+    setSubscriptionFeedback({
+      ok: '결제가 완료되면 서버 웹훅이 플랜을 갱신합니다. 잠시 후 상태를 새로고침합니다.',
+      err: '',
+    })
+    await refreshSubscription()
   }
 
   async function handleCancelSubscription() {
     if (!supaReady || !currentUser?.id) return
     setSubscriptionFeedback({ ok: '', err: '' })
-    setSubscriptionActionLoading(true)
-    try {
-      await cancelMySubscription(currentUser.id)
-      const row = await fetchMySubscription(currentUser.id)
-      setUser((prev) => mergeSubscriptionIntoUser(prev, row))
-      setSubscriptionFeedback({ ok: '구독이 해지되었습니다. 무료 플랜 제한이 다시 적용됩니다.', err: '' })
-      try {
-        await createNotification({
-          userId: currentUser.id,
-          type: NOTIFICATION_TYPES.SYSTEM,
-          ...formatSystemCanceled(),
-        })
-      } catch {
-        /* ignore */
-      }
-    } catch (e) {
-      const msg = e instanceof SubscriptionServiceError
-        ? e.message
-        : (e?.message ?? '해지 처리에 실패했습니다.')
-      setSubscriptionFeedback({ ok: '', err: msg })
-    } finally {
-      setSubscriptionActionLoading(false)
-    }
+    setSubscriptionFeedback({
+      ok: '해지 요청은 서버 결제 시스템에서 처리됩니다. 처리 후 상태를 다시 조회합니다.',
+      err: '',
+    })
+    await refreshSubscription()
   }
 
   /**
@@ -658,8 +564,8 @@ export default function App() {
         setStrategiesError(msg)
         return null
       }
-      if (wouldExceedMarketPipelineCap(userStrategies, data?.id ?? null, true)) {
-        const msg = PLAN_MESSAGES.marketPipelineCap(MARKET_PIPELINE_MAX_STRATEGIES)
+      if (wouldExceedMarketPipelineCap(userStrategies, data?.id ?? null, true, user)) {
+        const msg = PLAN_MESSAGES.marketPipelineCap(getMaxSubmittedStrategies(user))
         setAuthError(msg)
         setStrategiesError(msg)
         return null
@@ -875,8 +781,8 @@ export default function App() {
       setStrategiesError(PLAN_MESSAGES.marketSubmitProOnly)
       return
     }
-    if (wouldExceedMarketPipelineCap(userStrategies, id, true)) {
-      const msg = PLAN_MESSAGES.marketPipelineCap(MARKET_PIPELINE_MAX_STRATEGIES)
+    if (wouldExceedMarketPipelineCap(userStrategies, id, true, user)) {
+      const msg = PLAN_MESSAGES.marketPipelineCap(getMaxSubmittedStrategies(user))
       setAuthError(msg)
       setStrategiesError(msg)
       return

@@ -2,7 +2,7 @@ import { useNavigate } from 'react-router-dom'
 import { Sun, Moon, Home, BarChart3, LineChart, FlaskConical, Code2, UserCircle2, ShieldCheck } from 'lucide-react'
 import NotificationDropdown from './NotificationDropdown'
 import { cn } from '../../lib/cn'
-import { getPlanLabel, getTrialUrgencyClass } from '../../lib/userPlan'
+import { getPlanLabel } from '../../lib/userPlan'
 
 const NAV_ITEMS = [
   { id: 'home',       label: '홈',        icon: Home         },
@@ -15,6 +15,9 @@ const NAV_ITEMS = [
 
 const PLAN_STYLE = {
   free:       'text-slate-500 dark:text-slate-400 font-semibold',
+  standard:   'text-blue-600 dark:text-blue-300 font-semibold',
+  pro:        'text-blue-700 dark:text-blue-300 font-bold',
+  premium:    'text-violet-700 dark:text-violet-300 font-bold',
   subscribed: 'text-blue-700 dark:text-blue-300 font-bold',
 }
 
@@ -43,9 +46,7 @@ export default function Topbar({
 }) {
   const navigate = useNavigate()
   const planLabel = user ? getPlanLabel(user) : 'Guest'
-  const planCls = user?.plan === 'trial'
-    ? `${getTrialUrgencyClass(user.trialDaysLeft)} font-bold`
-    : (PLAN_STYLE[user?.plan ?? 'free'] ?? PLAN_STYLE.free)
+  const planCls = PLAN_STYLE[user?.plan ?? 'free'] ?? PLAN_STYLE.free
 
   return (
     <header className="
@@ -230,15 +231,6 @@ export default function Topbar({
             <span className={`text-[12px] whitespace-nowrap leading-none truncate max-w-[120px] sm:max-w-[180px] ${planCls}`}>
               {planLabel}
             </span>
-            {user?.plan === 'trial' && (
-              <span className={cn(
-                'text-[10px] whitespace-nowrap leading-none mt-[2px] font-semibold tabular-nums',
-                user.trialDaysLeft <= 3 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-500 dark:text-slate-400',
-              )}>
-                체험 {user.trialDaysLeft}일 남음
-                {user.trialDaysLeft <= 3 && ' · 종료 후 잠금'}
-              </span>
-            )}
           </div>
         </button>
       </div>

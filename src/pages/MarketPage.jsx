@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { LayoutGrid, List, Package, Trophy, Percent, Shield } from 'lucide-react'
 import { cn } from '../lib/cn'
 import PageHeader            from '../components/ui/PageHeader'
@@ -20,11 +20,22 @@ import { mergeApprovedAndOperator } from '../lib/mergeMarketStrategies'
 import { getCachedPrice } from '../lib/priceCache'
 import { isMarketLocked } from '../lib/userPlan'
 import { formatUsd, formatKrw } from '../lib/priceFormat'
+import { copy as assetUniverseCopy } from '../lib/assetValidationUniverse'
 function fmtPct(v) {
   const n = Number(v)
   if (!Number.isFinite(n)) return '—'
   const sign = n >= 0 ? '+' : ''
   return `${sign}${n.toFixed(1)}%`
+}
+
+function fmtLiveTime(ts) {
+  const n = Number(ts)
+  if (!Number.isFinite(n) || n <= 0) return '—'
+  try {
+    return new Date(n).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  } catch {
+    return '—'
+  }
 }
 
 function metric(strategy) {
@@ -88,12 +99,13 @@ export default function MarketPage({
   const [filters,          setFilters]          = useState(DEFAULT_FILTERS)
   const [viewMode,         setViewMode]         = useState('card')
   const [selectedStrategy, setSelectedStrategy] = useState(null)
-  const [compareIds, setCompareIds] = useState([])
+  const [comparedIds, setComparedIds] = useState([])
   const [strategies,       setStrategies]       = useState([])
   const [loading,          setLoading]          = useState(true)
   const [error,            setError]            = useState('')
   const [btcDisplay,       setBtcDisplay]       = useState(null)
   const [btcPriceError,    setBtcPriceError]    = useState('')
+  const [lastSlowUpdateAt, setLastSlowUpdateAt] = useState(0)
   const btcPriceFirstFetchRef = useRef(true)
 
   function handleSimulate(strategy) {
@@ -103,16 +115,21 @@ export default function MarketPage({
     onGoSimulation?.(targetId)
   }
 
-  function toggleCompare(strategy) {
+  const handleOpenDetail = useCallback((strategy) => {
+    if (!strategy) return
+    setSelectedStrategy(strategy)
+  }, [])
+
+  const handleToggleCompare = useCallback((strategy) => {
     const id = strategy?.id
     if (!id) return
-    setCompareIds((prev) => {
+    setComparedIds((prev) => {
       const has = prev.includes(id)
       if (has) return prev.filter((x) => x !== id)
-      if (prev.length >= 2) return [prev[1], id] // 최대 2개 비교
+      if (prev.length >= 3) return prev
       return [...prev, id]
     })
-  }
+  }, [])
 
   function handleFilterChange(field, value) {
     setFilters((prev) => ({ ...prev, [field]: value }))
@@ -188,7 +205,7 @@ export default function MarketPage({
 
   useEffect(() => {
     let cancelled = false
-    const POLL_MS = 1500
+    const POLL_MS = 5000
 
     ;(async () => {
       try {
@@ -196,6 +213,7 @@ export default function MarketPage({
         const t = await getCachedPrice('BTC')
         if (!cancelled) {
           setBtcDisplay((prev) => t ?? prev)
+          setLastSlowUpdateAt(Date.now())
         }
       } catch (e) {
         if (!cancelled && btcPriceFirstFetchRef.current) {
@@ -210,7 +228,10 @@ export default function MarketPage({
     const timer = setInterval(async () => {
       try {
         const t = await getCachedPrice('BTC')
-        if (!cancelled) setBtcDisplay((prev) => t ?? prev)
+        if (!cancelled) {
+          setBtcDisplay((prev) => t ?? prev)
+          setLastSlowUpdateAt(Date.now())
+        }
       } catch {
         /* 실시간 보조 정보 — 이전 값 유지 */
       }
@@ -227,11 +248,19 @@ export default function MarketPage({
     [strategies, filters],
   )
 
-  const compareList = useMemo(() => {
-    if (compareIds.length === 0) return []
-    const byId = new Map(filtered.map((s) => [s.id, s]))
-    return compareIds.map((id) => byId.get(id)).filter(Boolean)
-  }, [compareIds, filtered])
+  const comparedStrategies = useMemo(() => {
+    return filtered.filter((s) => comparedIds.includes(s.id))
+  }, [filtered, comparedIds])
+
+  const bestComparedStrategy = useMemo(() => {
+    if (!comparedStrategies.length) return null
+    const sorted = [...comparedStrategies].sort((a, b) => {
+      const aScore = Number(a.trustScore ?? 0) + Number(a.totalReturnPct ?? a.roi ?? 0) * 0.3
+      const bScore = Number(b.trustScore ?? 0) + Number(b.totalReturnPct ?? b.roi ?? 0) * 0.3
+      return bScore - aScore
+    })
+    return sorted[0]
+  }, [comparedStrategies])
 
   const featured = useMemo(() => {
     const score = (s) => {
@@ -254,14 +283,7 @@ export default function MarketPage({
       .filter((s) => !isMarketLocked(s.id, u)) // 대표 영역은 우선 "선택 가능" 중심
       .sort((a, b) => score(b) - score(a))
 
-    const picked = []
-    for (let i = 0; i < list.length; i++) {
-      const s = list[i]
-      if (picked.length === 0) { picked.push(s); continue }
-      if (picked.length === 1 && s.id !== picked[0].id) { picked.push(s); break }
-    }
-
-    return picked.slice(0, 2)
+    return list.slice(0, 1)
   }, [filtered, u])
 
   /* TOP 3 랭킹 — 전체 목록 기준 (필터 무관) */
@@ -324,100 +346,132 @@ export default function MarketPage({
               <span className="text-[10px] text-slate-400 tabular-nums">
                 {filtered.length}개 전략
               </span>
+              <span className="text-[10px] text-slate-400 tabular-nums">
+                업데이트 {fmtLiveTime(lastSlowUpdateAt)}
+              </span>
             </div>
           }
         />
 
-        {compareList.length > 0 && (
-          <div className="mb-4 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-gray-900 px-3 py-2.5">
-            <div className="flex items-center justify-between gap-2 flex-wrap">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
-                선택 전략 비교 (최대 2개)
-              </p>
-              <Button variant="ghost" size="sm" type="button" onClick={() => setCompareIds([])}>
-                비교 해제
-              </Button>
+        <p className="mb-3 text-[10px] text-slate-600 dark:text-slate-400 leading-relaxed rounded-lg border border-slate-100 dark:border-gray-800 bg-slate-50/60 dark:bg-gray-900/35 px-2.5 py-1.5">
+          <span className="font-semibold text-slate-700 dark:text-slate-300">알트(ALT) 전략:</span>{' '}
+          {assetUniverseCopy.altBasketValidation}
+        </p>
+
+        {comparedStrategies.length > 0 && (
+          <>
+            <div className="sticky top-0 z-20 mb-4 rounded-xl border border-slate-200 bg-white/95 backdrop-blur px-4 py-3 dark:border-gray-700 dark:bg-gray-900/95">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    전략 비교 {comparedStrategies.length}/3
+                  </p>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    수익률, MDD, 승률, 신뢰도를 한눈에 비교하세요
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setComparedIds([])}
+                    className="h-8 px-3 text-xs rounded-md border border-slate-200 text-slate-500 dark:border-gray-700 dark:text-slate-400"
+                  >
+                    초기화
+                  </button>
+                </div>
+              </div>
             </div>
-            <div className="mt-2 grid grid-cols-1 lg:grid-cols-2 gap-2">
-              {compareList.map((s) => {
-                const m = metric(s)
-                const price = s.monthlyPriceKrw ?? s.monthly_price
-                return (
-                  <div key={s.id} className="rounded-lg border border-slate-100 dark:border-gray-800 px-3 py-2.5">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-[12px] font-bold text-slate-900 dark:text-slate-100 truncate">{s.name}</p>
-                        <p className="text-[10px] text-slate-400 mt-0.5">{s.author}</p>
-                      </div>
-                      <span className="text-[11px] font-bold text-slate-900 dark:text-slate-100 tabular-nums shrink-0">
-                        {price != null && Number(price) > 0 ? `₩${Number(price).toLocaleString()}/월` : '—'}
-                      </span>
-                    </div>
-                    <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-x-2 gap-y-1.5 text-[10px] tabular-nums">
-                      <div>
-                        <span className="text-slate-400">누적 수익</span>
-                        <div className={cn(
-                          'font-semibold',
-                          Number.isFinite(m.ret) && m.ret >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600',
-                        )}
-                        >
-                          {fmtPct(m.ret)}
-                        </div>
-                      </div>
-                      <div>
-                        <span className="text-slate-400">MDD</span>
-                        <div className="font-semibold text-red-600">−{Number.isFinite(m.mdd) ? m.mdd.toFixed(1) : '—'}%</div>
-                      </div>
-                      <div>
-                        <span className="text-slate-400">승률</span>
-                        <div className="font-semibold text-slate-800 dark:text-slate-200">{Number.isFinite(m.win) ? `${m.win.toFixed(1)}%` : '—'}</div>
-                      </div>
-                      <div>
-                        <span className="text-slate-400">거래</span>
-                        <div className="font-semibold text-slate-800 dark:text-slate-200">{Number.isFinite(m.trades) ? m.trades : '—'}</div>
-                      </div>
-                      <div>
-                        <span className="text-slate-400">최근 7일</span>
-                        <div className={cn(
-                          'font-semibold',
-                          Number.isFinite(m.r7) && m.r7 >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600',
-                        )}
-                        >
-                          {fmtPct(m.r7)}
-                        </div>
-                      </div>
-                      <div>
-                        <span className="text-slate-400">최근 30일</span>
-                        <div className={cn(
-                          'font-semibold',
-                          Number.isFinite(m.r30) && m.r30 >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600',
-                        )}
-                        >
-                          {fmtPct(m.r30)}
-                        </div>
-                      </div>
-                      <div className="sm:col-span-2">
-                        <span className="text-slate-400">현재 상태</span>
-                        <div
-                          className={cn(
-                            'font-semibold',
-                            m.pos === 'LONG' && 'text-blue-600 dark:text-blue-400',
-                            m.pos === 'SHORT' && 'text-red-600 dark:text-red-400',
-                            (m.pos === '대기' || m.pos === '—') && 'text-slate-500 dark:text-slate-400',
-                          )}
-                        >
-                          {m.pos}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
+
+            <div className="mb-5 overflow-x-auto rounded-xl border border-slate-200 bg-white dark:border-gray-700 dark:bg-gray-900/60">
+              <table className="w-full min-w-[720px] text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 dark:border-gray-700">
+                    <th className="px-4 py-3 text-left text-slate-500">항목</th>
+                    {comparedStrategies.map((s) => (
+                      <th key={s.id} className="px-4 py-3 text-left text-slate-900 dark:text-slate-100">
+                        {s.name}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-b border-slate-100 dark:border-gray-800">
+                    <td className="px-4 py-3 text-slate-500">신뢰도</td>
+                    {comparedStrategies.map((s) => (
+                      <td key={s.id} className="px-4 py-3 font-semibold">
+                        {s.trustScore ?? '-'}점
+                      </td>
+                    ))}
+                  </tr>
+                  <tr className="border-b border-slate-100 dark:border-gray-800">
+                    <td className="px-4 py-3 text-slate-500">수익률</td>
+                    {comparedStrategies.map((s) => (
+                      <td key={s.id} className="px-4 py-3 font-semibold">
+                        {Number.isFinite(Number(s.totalReturnPct ?? s.roi))
+                          ? `${Number(s.totalReturnPct ?? s.roi) >= 0 ? '+' : ''}${Number(s.totalReturnPct ?? s.roi).toFixed(1)}%`
+                          : '—'}
+                      </td>
+                    ))}
+                  </tr>
+                  <tr className="border-b border-slate-100 dark:border-gray-800">
+                    <td className="px-4 py-3 text-slate-500">MDD</td>
+                    {comparedStrategies.map((s) => (
+                      <td key={s.id} className="px-4 py-3">
+                        {Number.isFinite(Number(s.maxDrawdown ?? s.mdd))
+                          ? `-${Math.abs(Number(s.maxDrawdown ?? s.mdd)).toFixed(1)}%`
+                          : '—'}
+                      </td>
+                    ))}
+                  </tr>
+                  <tr className="border-b border-slate-100 dark:border-gray-800">
+                    <td className="px-4 py-3 text-slate-500">승률</td>
+                    {comparedStrategies.map((s) => (
+                      <td key={s.id} className="px-4 py-3">
+                        {Number.isFinite(Number(s.winRate)) ? `${Number(s.winRate).toFixed(1)}%` : '—'}
+                      </td>
+                    ))}
+                  </tr>
+                  <tr className="border-b border-slate-100 dark:border-gray-800">
+                    <td className="px-4 py-3 text-slate-500">거래 수</td>
+                    {comparedStrategies.map((s) => (
+                      <td key={s.id} className="px-4 py-3">
+                        {Number.isFinite(Number(s.tradeCount ?? s.trades)) ? Number(s.tradeCount ?? s.trades).toLocaleString() : '—'}
+                      </td>
+                    ))}
+                  </tr>
+                  <tr className="border-b border-slate-100 dark:border-gray-800">
+                    <td className="px-4 py-3 text-slate-500">최근 30일</td>
+                    {comparedStrategies.map((s) => (
+                      <td key={s.id} className="px-4 py-3">
+                        {Number.isFinite(Number(s.recentRoi30d ?? s.roi30d))
+                          ? `${Number(s.recentRoi30d ?? s.roi30d) >= 0 ? '+' : ''}${Number(s.recentRoi30d ?? s.roi30d).toFixed(1)}%`
+                          : '—'}
+                      </td>
+                    ))}
+                  </tr>
+                  <tr>
+                    <td className="px-4 py-3 text-slate-500">현재 상태</td>
+                    {comparedStrategies.map((s) => (
+                      <td key={s.id} className="px-4 py-3">
+                        {s.recentSignals?.[0]?.dir ?? s.currentDir ?? '대기'}
+                      </td>
+                    ))}
+                  </tr>
+                </tbody>
+              </table>
             </div>
-            <p className="mt-2 text-[9px] text-slate-500 leading-relaxed">
-              동일 엔진 백테스트·최근 구간 성과 기준입니다. 실전 결과를 보장하지 않습니다.
-            </p>
-          </div>
+
+            {bestComparedStrategy && (
+              <div className="mt-3 mb-5 rounded-lg border border-emerald-200 bg-emerald-50/70 px-4 py-3 dark:border-emerald-900/50 dark:bg-emerald-950/20">
+                <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
+                  비교 기준상 가장 유리한 전략: {bestComparedStrategy.name}
+                </p>
+                <p className="mt-1 text-xs text-emerald-700/80 dark:text-emerald-300/80">
+                  신뢰도와 최근 성과를 함께 기준으로 계산했습니다.
+                </p>
+              </div>
+            )}
+          </>
         )}
 
         {/* ── 랭킹 (탐색) TOP 3 ── */}
@@ -442,7 +496,7 @@ export default function MarketPage({
                     <button
                       key={s.id}
                       type="button"
-                      onClick={() => setSelectedStrategy(s)}
+                      onClick={() => handleOpenDetail(s)}
                       className="w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-gray-800/40 transition-colors border-b border-slate-50 dark:border-gray-800/60 last:border-b-0"
                     >
                       <span className={cn(
@@ -478,7 +532,7 @@ export default function MarketPage({
                     <button
                       key={s.id}
                       type="button"
-                      onClick={() => setSelectedStrategy(s)}
+                      onClick={() => handleOpenDetail(s)}
                       className="w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-gray-800/40 transition-colors border-b border-slate-50 dark:border-gray-800/60 last:border-b-0"
                     >
                       <span className={cn(
@@ -511,7 +565,7 @@ export default function MarketPage({
                     <button
                       key={s.id}
                       type="button"
-                      onClick={() => setSelectedStrategy(s)}
+                      onClick={() => handleOpenDetail(s)}
                       className="w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-gray-800/40 transition-colors border-b border-slate-50 dark:border-gray-800/60 last:border-b-0"
                     >
                       <span className={cn(
@@ -538,41 +592,42 @@ export default function MarketPage({
           </div>
         )}
 
-        {/* 2) 오늘 살펴볼 만한 후보 (잠금 없는 전략 우선) */}
+        {/* 2) 지금 가장 추천하는 전략 (1개) */}
         {featured.length > 0 && (
           <div className="mb-4">
             <div className="flex items-end justify-between gap-2 mb-2 flex-wrap">
               <div>
                 <p className="text-[12px] font-bold text-slate-800 dark:text-slate-200 tracking-tight">
-                  오늘 살펴볼 만한 후보
+                  지금 가장 추천하는 전략
                 </p>
                 <p className="text-[11px] text-slate-400 mt-0.5">
-                  바로 열람·비교 가능한 전략부터 골랐습니다. 아래 목록에서 전부 비교할 수 있습니다.
+                  처음이라면 이 전략부터 시작하세요.
                 </p>
               </div>
               <Button variant="ghost" size="sm" onClick={() => setViewMode('card')}>
                 카드로 보기
               </Button>
             </div>
-            <div className={cn(
-              'grid grid-cols-1 gap-3',
-              featured.length === 2 && 'lg:grid-cols-2',
-            )}>
+            <div className="grid grid-cols-1 gap-3">
               {featured.map((s) => (
-                <MarketStrategyCard
-                  key={`featured-${s.id}`}
-                  strategy={s}
-                  user={u}
-                  isLocked={isMarketLocked(s.id, u)}
-                  isUserStrategy={false}
-                  onDetail={() => setSelectedStrategy(s)}
-                  onSimulate={() => handleSimulate(s)}
-                  onStartTrial={onStartTrial}
-                  onGoSubscription={onGoSubscription}
-                  onSubscribe={onSubscribe}
-                  onToggleCompare={toggleCompare}
-                  compared={compareIds.includes(s.id)}
-                />
+                <div key={`featured-${s.id}`}>
+                  <MarketStrategyCard
+                    strategy={s}
+                    user={u}
+                    isLocked={isMarketLocked(s.id, u)}
+                    isUserStrategy={false}
+                    onDetail={() => handleOpenDetail(s)}
+                    onSimulate={() => handleSimulate(s)}
+                    onStartTrial={onStartTrial}
+                    onGoSubscription={onGoSubscription}
+                    onSubscribe={onSubscribe}
+                    onToggleCompare={handleToggleCompare}
+                    compared={comparedIds.includes(s.id)}
+                  />
+                  <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                    유형: {s.typeLabel ?? '추세형'} · 최대 손실 -{Number(s.maxDrawdown ?? s.mdd ?? 0).toFixed(1)}% · {Number(s.maxDrawdown ?? s.mdd ?? 0) >= 15 ? '변동성 있음' : '변동성 낮음'}
+                  </p>
+                </div>
               ))}
             </div>
           </div>
@@ -582,7 +637,7 @@ export default function MarketPage({
         <div className="mb-2">
           <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">전체 전략 · 비교</p>
           <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-            필터와 정렬로 후보를 줄인 뒤, 카드의「비교」로 최대 2개를 고르세요.
+            필터와 정렬로 후보를 줄인 뒤, 카드의「비교」로 최대 3개를 고르세요.
           </p>
         </div>
         <div className="mb-3 flex items-center justify-between gap-2 flex-wrap">
@@ -598,13 +653,13 @@ export default function MarketPage({
           </div>
         </div>
 
-        {!loading && error && (
+        {error && (
           <div className="mb-2">
             <p className="text-[10px] text-amber-500">{error}</p>
           </div>
         )}
 
-        {loading ? (
+        {loading && strategies.length === 0 ? (
           <div className="market-card-list">
             {Array.from({ length: 6 }).map((_, i) => (
               <StrategyCardSkeleton key={i} />
@@ -613,11 +668,8 @@ export default function MarketPage({
         ) : strategies.length === 0 ? (
           <EmptyState
             icon={<Package size={28} strokeWidth={1.2} />}
-            title="아직 마켓에 노출할 전략이 없습니다"
-            description={
-              '플랫폼 운영 전략은 순차 공개 예정입니다. 커뮤니티 전략은 에디터 제출 → 검수 승인 후 표시됩니다. ' +
-              '지금은 제출된 전략이 없거나 DB 연결을 확인할 수 없습니다.'
-            }
+            title="아직 등록된 전략이 없습니다"
+            description="첫 전략을 만들어보세요"
             action={
               <div className="flex flex-wrap gap-2 justify-center">
                 <Button variant="primary" size="sm" onClick={() => onNavigate?.('editor')}>
@@ -649,13 +701,13 @@ export default function MarketPage({
                 user={u}
                 isLocked={isMarketLocked(s.id, u)}
                 isUserStrategy={false}
-                onDetail={() => setSelectedStrategy(s)}
+                onDetail={() => handleOpenDetail(s)}
                 onSimulate={() => handleSimulate(s)}
                 onStartTrial={onStartTrial}
                 onGoSubscription={onGoSubscription}
                 onSubscribe={onSubscribe}
-                onToggleCompare={toggleCompare}
-                compared={compareIds.includes(s.id)}
+                onToggleCompare={handleToggleCompare}
+                compared={comparedIds.includes(s.id)}
               />
             ))}
           </div>
@@ -663,7 +715,7 @@ export default function MarketPage({
           <StrategyTable
             strategies={filtered}
             user={u}
-            onDetail={(s) => setSelectedStrategy(s)}
+            onDetail={handleOpenDetail}
             onSimulate={handleSimulate}
             onStartTrial={onStartTrial}
             onGoSubscription={onGoSubscription}

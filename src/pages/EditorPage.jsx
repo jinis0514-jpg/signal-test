@@ -60,6 +60,15 @@ import CandlestickChart from '../components/simulation/CandlestickChart'
 import { ChartSkeleton } from '../components/ui/Skeleton'
 import SectionErrorBoundary from '../components/ui/SectionErrorBoundary'
 import { formatDisplayPct, formatDisplayMdd, formatDisplayWinRate } from '../lib/strategyDisplayMetrics'
+import {
+  ALT_BASKET_USDT_PAIRS,
+  ALT_VALIDATION_MIN,
+  ALT_VALIDATION_MAX,
+  normalizeAltValidationSymbols,
+  copy as assetUniverseCopy,
+} from '../lib/assetValidationUniverse'
+import { normalizeBinanceSymbol } from '../lib/marketCandles'
+import { fetchBinanceUsdtSpotPairMetaCached } from '../lib/binanceUsdUniverse'
 
 function isUuidLike(id) {
   return typeof id === 'string'
@@ -85,6 +94,35 @@ const STOP_CONDITIONS = [
   { id: 'time_based',    simpleLabel: '일정 봉 지나면 청산',     label: '시간 기반 청산 (봉)',   hint: '진입 후 N봉 경과 시 청산' },
   { id: 'atr_stop',      simpleLabel: '변동폭(ATR) 기준 손절',   label: 'ATR 기반 손절 (배수)',  hint: 'ATR × 배수 이격 시 청산' },
 ]
+
+const STOP_RULE_CONDITIONS = [
+  { id: 'fixed_pct', label: '고정 %', hint: '진입가 대비 역방향 %' },
+  { id: 'atr_stop', label: 'ATR 기반', hint: 'ATR × 배수' },
+  { id: 'condition_expr', label: '조건식', hint: '직접 조건 입력' },
+]
+
+function newStopRule(type = 'fixed_pct') {
+  return {
+    id: `stop_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    type,
+    value: '',
+    atrPeriod: '14',
+    atrMult: '2',
+    conditionExpr: '',
+  }
+}
+
+function normalizeStopRules(rules) {
+  if (!Array.isArray(rules) || rules.length === 0) return [newStopRule('fixed_pct')]
+  return rules.map((r, i) => ({
+    id: String(r?.id ?? `stop_${i}`),
+    type: String(r?.type ?? 'fixed_pct'),
+    value: r?.value ?? '',
+    atrPeriod: r?.atrPeriod ?? '14',
+    atrMult: r?.atrMult ?? '2',
+    conditionExpr: r?.conditionExpr ?? '',
+  }))
+}
 
 const CONDITION_HINTS = {
   ema_cross: '빠른 EMA가 느린 EMA를 상향 돌파하면 롱, 하향 이탈하면 숏 신호.',
@@ -179,11 +217,96 @@ const PREVIEW_DEBOUNCE_MS = 450
 /** 코드 DSL → 엔진 실시간 실행 debounce (300~500ms 권장) */
 const CODE_RUN_DEBOUNCE_MS = 300
 
-/** 에디터 자산 → Binance klines 베이스 심볼 (ALT는 캔들 미리보기용 ETH 대체) */
-function klineBaseFromEditorAsset(raw) {
+/** 에디터 자산 → Binance klines 베이스 심볼 (ALT는 검증 목록 1종으로 미리보기) */
+function klineBaseFromEditorAsset(raw, altList) {
   const a = String(raw || '').trim().toUpperCase()
-  if (a === 'ALT') return 'ETH'
+  if (a === 'ALT') {
+    const first = normalizeAltValidationSymbols(altList ?? [])[0]
+    return (first || ALT_BASKET_USDT_PAIRS[0]).replace(/USDT$/i, '')
+  }
   return a || 'BTC'
+}
+
+function EditorAltValidationSection({
+  altSymDraft,
+  setAltSymDraft,
+  altValidationSymbols,
+  setAltValidationSymbols,
+  pairOptions = [],
+  className = '',
+}) {
+  const list = normalizeAltValidationSymbols(altValidationSymbols)
+  const addFromDraft = () => {
+    const sym = normalizeBinanceSymbol(altSymDraft)
+    if (!sym) return
+    setAltValidationSymbols((prev) => normalizeAltValidationSymbols([...prev, sym]))
+    setAltSymDraft('')
+  }
+  const q = String(altSymDraft || '').trim().toUpperCase()
+  const have = new Set(list)
+  let binancePick = Array.isArray(pairOptions) ? pairOptions : []
+  if (q) {
+    binancePick = binancePick.filter(
+      (p) => p && typeof p.symbol === 'string'
+        && (p.symbol.includes(q) || String(p.baseAsset || '').toUpperCase().includes(q)),
+    )
+  }
+  binancePick = binancePick.filter((p) => p.symbol && !have.has(p.symbol)).slice(0, 60)
+  return (
+    <div className={className}>
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-400">
+          검증용 코인 (Binance USDT · {ALT_VALIDATION_MIN}~{ALT_VALIDATION_MAX}개)
+        </span>
+        <span className="text-[10px] tabular-nums text-slate-500">{list.length}/{ALT_VALIDATION_MAX}</span>
+      </div>
+      <div className="flex flex-wrap gap-1.5 mt-1.5">
+        {list.map((sym) => (
+          <button
+            key={sym}
+            type="button"
+            onClick={() => setAltValidationSymbols((prev) => normalizeAltValidationSymbols(
+              prev.filter((p) => normalizeBinanceSymbol(p) !== sym),
+            ))}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-100 dark:bg-gray-800 text-[10px] font-mono text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-gray-700 hover:bg-red-50 dark:hover:bg-red-950/30"
+          >
+            {sym}
+            <span className="text-slate-400" aria-hidden>×</span>
+          </button>
+        ))}
+      </div>
+      <div className="flex gap-1.5 flex-wrap items-center mt-2">
+        <Input
+          placeholder="예: ARBUSDT"
+          value={altSymDraft}
+          onChange={(e) => setAltSymDraft(e.target.value.toUpperCase())}
+          className="h-8 text-[11px] flex-1 min-w-[120px]"
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addFromDraft() } }}
+        />
+        <Button type="button" variant="secondary" size="sm" className="h-8 text-[11px]" onClick={addFromDraft}>
+          추가
+        </Button>
+      </div>
+      <p className="text-[9px] text-slate-500 mt-1.5">Binance USDT 상장(거래 중) 목록 — 입력으로 검색 후 탭하여 추가</p>
+      <div className="max-h-[10.5rem] overflow-y-auto mt-1 rounded-md border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-900/50 divide-y divide-slate-100 dark:divide-gray-800">
+        {binancePick.length === 0 ? (
+          <p className="px-2 py-3 text-[10px] text-slate-500 text-center">목록을 불러오는 중이거나 검색 결과가 없습니다.</p>
+        ) : (
+          binancePick.map((p) => (
+            <button
+              key={p.symbol}
+              type="button"
+              disabled={list.length >= ALT_VALIDATION_MAX}
+              onClick={() => setAltValidationSymbols((prev) => normalizeAltValidationSymbols([...prev, p.symbol]))}
+              className="w-full text-left px-2 py-1.5 text-[10px] font-mono hover:bg-slate-50 dark:hover:bg-gray-800/80 disabled:opacity-40"
+            >
+              {p.symbol}
+            </button>
+          ))
+        )}
+      </div>
+    </div>
+  )
 }
 
 function intervalFromEditorTimeframe(tf) {
@@ -232,17 +355,28 @@ function tryParseStrategyJson(text) {
 function formatEditorRiskSummary(risk) {
   if (!risk || typeof risk !== 'object') return '—'
   const parts = []
+  const stopRules = Array.isArray(risk.stopRules) ? risk.stopRules : []
+  if (stopRules.length > 0) {
+    const ruleText = stopRules.map((r) => {
+      const t = String(r?.type ?? '')
+      if (t === 'fixed_pct') return `고정 ${r?.value ?? '—'}%`
+      if (t === 'atr_stop') return `ATR ${r?.atrPeriod ?? 14}×${r?.atrMult ?? 2}`
+      if (t === 'condition_expr') return `조건식 ${String(r?.conditionExpr ?? '').trim() || '미입력'}`
+      return '기타'
+    })
+    parts.push(`손절 ${ruleText.join(' + ')}`)
+  }
   const st = risk.stopType || 'fixed_pct'
-  if (st === 'fixed_pct' && risk.stopValue !== '' && risk.stopValue != null) {
+  if (stopRules.length === 0 && st === 'fixed_pct' && risk.stopValue !== '' && risk.stopValue != null) {
     parts.push(`손절 ${risk.stopValue}%`)
   }
-  if (st === 'trailing' && (risk.trailingStopPct || risk.stopValue)) {
+  if (stopRules.length === 0 && st === 'trailing' && (risk.trailingStopPct || risk.stopValue)) {
     parts.push(`트레일 ${risk.trailingStopPct || risk.stopValue}%`)
   }
-  if (st === 'time_based' && risk.timeExitBars !== '' && risk.timeExitBars != null) {
+  if (stopRules.length === 0 && st === 'time_based' && risk.timeExitBars !== '' && risk.timeExitBars != null) {
     parts.push(`${risk.timeExitBars}봉 후 청산`)
   }
-  if (st === 'atr_stop') {
+  if (stopRules.length === 0 && st === 'atr_stop') {
     parts.push(`ATR ${risk.atrPeriod || 14}×${risk.atrMult || 2}`)
   }
   if (risk.takeProfitPct !== '' && risk.takeProfitPct != null) {
@@ -413,6 +547,9 @@ export default function EditorPage({
   const [name,          setName]          = useState('')
   const [tags,          setTags]          = useState('')
   const [asset,         setAsset]         = useState('')
+  const [altValidationSymbols, setAltValidationSymbols] = useState([])
+  const [altSymDraft, setAltSymDraft] = useState('')
+  const [binancePairMetaEditor, setBinancePairMetaEditor] = useState([])
   const [timeframe,     setTimeframe]     = useState('1h')
   const [riskLevel,     setRiskLevel]     = useState('mid')
   const [description,  setDescription]  = useState('')
@@ -464,6 +601,7 @@ export default function EditorPage({
   /* ── 리스크 설정 상태 ───────────────── */
   const [stopType,      setStopType]      = useState('fixed_pct')
   const [stopValue,     setStopValue]     = useState('')
+  const [stopRules, setStopRules] = useState(() => [newStopRule('fixed_pct')])
   const [takeProfitPct, setTakeProfitPct] = useState('')
   const [posSize,       setPosSize]       = useState('')
   const [maxOpenPos,    setMaxOpenPos]    = useState('1')
@@ -507,22 +645,23 @@ export default function EditorPage({
   const [codeAutoErrorLine, setCodeAutoErrorLine] = useState(null)
   const riskConfigMemo = useMemo(
     () => ({
-      stopType,
-      stopValue,
+      stopType: String(stopRules?.[0]?.type ?? stopType ?? 'fixed_pct'),
+      stopValue: stopRules?.[0]?.type === 'fixed_pct' ? (stopRules?.[0]?.value ?? stopValue) : stopValue,
       takeProfitPct,
-      trailingStopPct,
+      trailingStopPct: stopRules?.[0]?.type === 'trailing' ? (stopRules?.[0]?.value ?? trailingStopPct) : trailingStopPct,
       posSize,
       maxOpenPos,
       minSignalGap,
       allowReentry,
-      timeExitBars,
-      atrPeriod,
-      atrMult,
+      timeExitBars: stopRules?.[0]?.type === 'time_based' ? (stopRules?.[0]?.value ?? timeExitBars) : timeExitBars,
+      atrPeriod: stopRules?.[0]?.type === 'atr_stop' ? (stopRules?.[0]?.atrPeriod ?? atrPeriod) : atrPeriod,
+      atrMult: stopRules?.[0]?.type === 'atr_stop' ? (stopRules?.[0]?.atrMult ?? atrMult) : atrMult,
       maxLossPct,
+      stopRules: normalizeStopRules(stopRules),
     }),
     [
       stopType, stopValue, takeProfitPct, trailingStopPct, posSize, maxOpenPos,
-      minSignalGap, allowReentry, timeExitBars, atrPeriod, atrMult, maxLossPct,
+      minSignalGap, allowReentry, timeExitBars, atrPeriod, atrMult, maxLossPct, stopRules,
     ],
   )
 
@@ -545,6 +684,28 @@ export default function EditorPage({
       sessionStorage.setItem('bb_mypage_section', 'subscription')
     } catch { /* ignore */ }
   }, [onNavigate])
+
+  useEffect(() => {
+    if (String(asset || '').toUpperCase() !== 'ALT') return
+    setAltValidationSymbols((prev) => {
+      const n = normalizeAltValidationSymbols(prev)
+      if (n.length >= ALT_VALIDATION_MIN) return n
+      return normalizeAltValidationSymbols([...ALT_BASKET_USDT_PAIRS])
+    })
+  }, [asset])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const m = await fetchBinanceUsdtSpotPairMetaCached()
+        if (!cancelled && Array.isArray(m)) setBinancePairMetaEditor(m)
+      } catch {
+        if (!cancelled) setBinancePairMetaEditor([])
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
 
   const [beginnerTemplateKey, setBeginnerTemplateKey] = useState('trend')
 
@@ -571,6 +732,9 @@ export default function EditorPage({
       conditions: engineConditionsToSaved(buildEngineConditionsFromEditor(tpl.selected, tpl.condParams ?? {})),
       risk_config: { ...DEFAULT_RISK_CONFIG },
       tags: [],
+      ...(String(chosenAsset).toUpperCase() === 'ALT'
+        ? { altValidationSymbols: normalizeAltValidationSymbols([...ALT_BASKET_USDT_PAIRS]) }
+        : {}),
     }
     let saved = null
     try {
@@ -629,6 +793,7 @@ export default function EditorPage({
         entryExitSplit: !!builderFromCode.entryExitSplit,
         entryConditions: builderFromCode.entryConditions ?? [],
         exitConditions: builderFromCode.exitConditions ?? [],
+        altValidationSymbols: builderFromCode.altValidationSymbols ?? n.altValidationSymbols,
       })
     }
 
@@ -651,6 +816,7 @@ export default function EditorPage({
     setRiskDescription(String(n.risk_description ?? ''))
     setTags(Array.isArray(effectiveN.tags) ? effectiveN.tags.join(', ') : String(effectiveN.tags ?? ''))
     setAsset(String(effectiveN.asset ?? ''))
+    setAltValidationSymbols(normalizeAltValidationSymbols(effectiveN.altValidationSymbols ?? []))
     setTimeframe(String(effectiveN.timeframe ?? '1h') || '1h')
     setRiskLevel(String(effectiveN.riskLevel ?? 'mid') || 'mid')
     setSelected(conditionsToEditorSelectedIds(effectiveN.conditions ?? []))
@@ -658,6 +824,7 @@ export default function EditorPage({
 
     setStopType(rcEff.stopType ?? 'fixed_pct')
     setStopValue(rcEff.stopValue ?? '')
+    setStopRules(normalizeStopRules(rcEff.stopRules))
     setTakeProfitPct(rcEff.takeProfitPct ?? '')
     setPosSize(rcEff.posSize ?? '')
     setMaxOpenPos(rcEff.maxOpenPos ?? '1')
@@ -695,6 +862,7 @@ export default function EditorPage({
         conditions: effectiveN.conditions ?? [],
         code: rawCode,
         risk_config: rcEff,
+        altValidationSymbols: normalizeAltValidationSymbols(effectiveN.altValidationSymbols ?? []),
       }, null, 2))
       return
     }
@@ -731,6 +899,7 @@ export default function EditorPage({
           conditions: effectiveN.conditions ?? [],
           code: legacyBuilderCode || rawCode || '',
           risk_config: rcEff,
+          altValidationSymbols: normalizeAltValidationSymbols(effectiveN.altValidationSymbols ?? []),
         }, null, 2))
       }
     }
@@ -776,8 +945,8 @@ export default function EditorPage({
   }, [saveErrorMessage])
 
   const selectedKey = useMemo(
-    () => `${[...selected].sort().join(',')}|${asset}|${timeframe}|${previewPeriodKey}`,
-    [selected, asset, timeframe, previewPeriodKey],
+    () => `${[...selected].sort().join(',')}|${asset}|${timeframe}|${previewPeriodKey}|${normalizeAltValidationSymbols(altValidationSymbols).join(',')}`,
+    [selected, asset, timeframe, previewPeriodKey, altValidationSymbols],
   )
 
   const strategyCodeParseResult = useMemo(() => parseStrategyCode(strategyCode), [strategyCode])
@@ -796,6 +965,9 @@ export default function EditorPage({
         timeframe: timeframe || '1h',
         mode: 'code',
         code: strategyCode,
+        altValidationSymbols: String(asset || '').toUpperCase() === 'ALT'
+          ? normalizeAltValidationSymbols(altValidationSymbols)
+          : [],
       })
     }
     if (t.startsWith('{')) {
@@ -809,6 +981,9 @@ export default function EditorPage({
         asset: asset || 'BTC',
         timeframe: timeframe || '1h',
         code: strategyCode,
+        altValidationSymbols: String(asset || '').toUpperCase() === 'ALT'
+          ? normalizeAltValidationSymbols(altValidationSymbols)
+          : [],
       })
     }
     return null
@@ -821,6 +996,7 @@ export default function EditorPage({
     description,
     asset,
     timeframe,
+    altValidationSymbols,
   ])
 
   /** Monaco 머커(빨간 밑줄) — 파싱/엔진 오류 라인 */
@@ -1132,7 +1308,10 @@ export default function EditorPage({
   useEffect(() => {
     let cancelled = false
     setPreviewAltNote(String(asset || '').toUpperCase() === 'ALT'
-      ? '알트 선택 시 미리보기 캔들은 ETHUSDT 기준입니다.'
+      ? (() => {
+          const first = normalizeAltValidationSymbols(altValidationSymbols)[0] || ALT_BASKET_USDT_PAIRS[0]
+          return `알트(ALT)는 선택한 검증 코인 각각에 백테스트한 뒤 평균·분포로 요약합니다. 미리보기 캔들은 ${first} 기준입니다.`
+        })()
       : '')
 
     const needNocodeConds = editorMode === 'builder' && mode === 'nocode' && selected.length === 0
@@ -1158,7 +1337,7 @@ export default function EditorPage({
 
     const timer = setTimeout(async () => {
       try {
-        const base = klineBaseFromEditorAsset(asset)
+        const base = klineBaseFromEditorAsset(asset, altValidationSymbols)
         const interval = intervalFromEditorTimeframe(timeframe)
         const candles = await getCachedKlines(base, interval, limit)
         if (cancelled) return
@@ -1176,7 +1355,7 @@ export default function EditorPage({
       cancelled = true
       clearTimeout(timer)
     }
-  }, [editorMode, mode, asset, timeframe, selectedKey, previewPeriodKey, dslOrJsonPayload])
+  }, [editorMode, mode, asset, timeframe, selectedKey, previewPeriodKey, dslOrJsonPayload, altValidationSymbols])
 
   useEffect(() => {
     if (mode === 'code') {
@@ -1274,6 +1453,7 @@ export default function EditorPage({
   const resetRiskDefaults = useCallback(() => {
     setStopType(DEFAULT_RISK_CONFIG.stopType)
     setStopValue(DEFAULT_RISK_CONFIG.stopValue)
+    setStopRules([newStopRule('fixed_pct')])
     setTakeProfitPct(DEFAULT_RISK_CONFIG.takeProfitPct)
     setTrailingStopPct(DEFAULT_RISK_CONFIG.trailingStopPct)
     setPosSize(DEFAULT_RISK_CONFIG.posSize)
@@ -1324,21 +1504,7 @@ export default function EditorPage({
   }
 
   const strategySnapshotNocode = useMemo(() => {
-    const risk_config = {
-      ...DEFAULT_RISK_CONFIG,
-      stopType,
-      stopValue,
-      takeProfitPct,
-      trailingStopPct,
-      posSize,
-      maxOpenPos,
-      minSignalGap,
-      allowReentry,
-      timeExitBars,
-      atrPeriod,
-      atrMult,
-      maxLossPct,
-    }
+    const risk_config = { ...DEFAULT_RISK_CONFIG, ...riskConfigMemo }
     return {
       name: name.trim() || '새 전략',
       description: description.trim(),
@@ -1350,11 +1516,15 @@ export default function EditorPage({
       conditions: engineConditionsToSaved(buildEngineConditionsFromEditor(selected, condParams)),
       code: '',
       risk_config,
+      altValidationSymbols: String(asset || '').toUpperCase() === 'ALT'
+        ? normalizeAltValidationSymbols(altValidationSymbols)
+        : [],
     }
   }, [
     name, description, tags, asset, timeframe, riskLevel, selected, condParams,
     stopType, stopValue, takeProfitPct, trailingStopPct, posSize, maxOpenPos,
     minSignalGap, allowReentry, timeExitBars, atrPeriod, atrMult, maxLossPct,
+    stopRules, riskConfigMemo, altValidationSymbols,
   ])
 
   useEffect(() => {
@@ -1367,21 +1537,10 @@ export default function EditorPage({
 
   /* ── 공통 폼 데이터 수집 ──────────── */
   function collectData() {
-    const risk_config = {
-      ...DEFAULT_RISK_CONFIG,
-      stopType,
-      stopValue,
-      takeProfitPct,
-      trailingStopPct,
-      posSize,
-      maxOpenPos,
-      minSignalGap,
-      allowReentry,
-      timeExitBars,
-      atrPeriod,
-      atrMult,
-      maxLossPct,
-    }
+    const altSymCollect = String(asset || '').toUpperCase() === 'ALT'
+      ? normalizeAltValidationSymbols(altValidationSymbols)
+      : []
+    const risk_config = { ...DEFAULT_RISK_CONFIG, ...riskConfigMemo }
     if (mode === 'code') {
       if (dslOrJsonPayload) {
         const merged = {
@@ -1404,6 +1563,7 @@ export default function EditorPage({
           method_preview_mode: methodPreviewPdfPath ? 'file' : 'none',
           linked_signal_strategy_id: linkedSignalStrategyId || null,
           pdf_file: pdfFile ?? null,
+          altValidationSymbols: altSymCollect,
         }
         return {
           ...merged,
@@ -1440,6 +1600,7 @@ export default function EditorPage({
           method_preview_mode: methodPreviewPdfPath ? 'file' : 'none',
           linked_signal_strategy_id: linkedSignalStrategyId || null,
           pdf_file: pdfFile ?? null,
+          altValidationSymbols: altSymCollect,
         }
         return {
           ...partial,
@@ -1467,6 +1628,7 @@ export default function EditorPage({
         method_preview_mode: methodPreviewPdfPath ? 'file' : 'none',
         linked_signal_strategy_id: linkedSignalStrategyId || null,
         pdf_file: pdfFile ?? null,
+        altValidationSymbols: altSymCollect,
       }
       return {
         ...jsonMerged,
@@ -1501,6 +1663,7 @@ export default function EditorPage({
       method_preview_mode: methodPreviewPdfPath ? 'file' : 'none',
       linked_signal_strategy_id: linkedSignalStrategyId || null,
       pdf_file: pdfFile ?? null,
+      altValidationSymbols: altSymCollect,
     }
     return {
       ...builderPayload,
@@ -1532,6 +1695,13 @@ export default function EditorPage({
     }
     if (editorMode === 'builder' && mode === 'nocode' && selected.length === 0) {
       setSaveError('진입 조건을 하나 이상 선택해주세요.'); return false
+    }
+    if (String(asset || '').toUpperCase() === 'ALT') {
+      const syms = normalizeAltValidationSymbols(altValidationSymbols)
+      if (syms.length < ALT_VALIDATION_MIN || syms.length > ALT_VALIDATION_MAX) {
+        setSaveError(`알트(ALT)는 검증용 Binance USDT 심볼을 ${ALT_VALIDATION_MIN}~${ALT_VALIDATION_MAX}개 선택해야 합니다. (현재 ${syms.length}개)`)
+        return false
+      }
     }
     if (mode === 'code') {
       if (!dslOrJsonPayload) {
@@ -1565,6 +1735,12 @@ export default function EditorPage({
       return e
     }
     if (!String(asset ?? '').trim()) e.asset = '대상 자산을 선택해주세요.'
+    if (String(asset || '').toUpperCase() === 'ALT') {
+      const syms = normalizeAltValidationSymbols(altValidationSymbols)
+      if (syms.length < ALT_VALIDATION_MIN || syms.length > ALT_VALIDATION_MAX) {
+        e.asset = `검증 코인 ${ALT_VALIDATION_MIN}~${ALT_VALIDATION_MAX}개를 선택해 주세요. (현재 ${syms.length}개)`
+      }
+    }
     if (!String(timeframe ?? '').trim()) e.timeframe = '봉 간격을 선택해주세요.'
     if (editorMode === 'builder' && mode === 'nocode' && selected.length === 0) {
       e.entry = '진입 조건을 1개 이상 선택해주세요.'
@@ -1704,7 +1880,7 @@ export default function EditorPage({
   }
 
   return (
-    <PageShell wide className="pb-20 editor-page-shell">
+    <PageShell wide className="editor-page-shell">
       <header className="editor-page-header space-y-4">
         <PageHeader
           title={strategyKind === 'method' ? '매매법 등록' : '전략 에디터'}
@@ -1842,6 +2018,23 @@ export default function EditorPage({
                     ))}
                   </select>
                 </div>
+                {String(asset || '').toUpperCase() === 'ALT' && (
+                  <div className="sm:col-span-2 lg:col-span-4 rounded-md border border-indigo-100 dark:border-indigo-900/35 bg-indigo-50/50 dark:bg-indigo-950/25 px-3 py-2.5">
+                    <p className="text-[10px] text-indigo-800 dark:text-indigo-300 leading-relaxed">
+                      {assetUniverseCopy.altBasketValidation}
+                      {' '}
+                      시그널 페이지에서는 차트 심볼을 자유롭게 바꿀 수 있으며, 검증 성과는 여기 선택한 코인 묶음과 별개로 표시됩니다.
+                    </p>
+                    <EditorAltValidationSection
+                      altSymDraft={altSymDraft}
+                      setAltSymDraft={setAltSymDraft}
+                      altValidationSymbols={altValidationSymbols}
+                      setAltValidationSymbols={setAltValidationSymbols}
+                      pairOptions={binancePairMetaEditor}
+                      className="mt-2 space-y-2"
+                    />
+                  </div>
+                )}
                 <div className="sm:col-span-2 lg:col-span-4">
                   <label className="text-[10px] text-slate-500 block mb-1">한 줄 설명 (선택)</label>
                   <Input
@@ -1959,6 +2152,24 @@ export default function EditorPage({
                   {uiErrors.timeframe && <p className="mt-1 text-[11px] text-red-500">{uiErrors.timeframe}</p>}
                 </div>
               </div>
+
+              {String(asset || '').toUpperCase() === 'ALT' && (
+                <div className="rounded-md border border-indigo-100 dark:border-indigo-900/35 bg-indigo-50/50 dark:bg-indigo-950/25 px-3 py-2.5">
+                  <p className="text-[10px] text-indigo-800 dark:text-indigo-300 leading-relaxed">
+                    {assetUniverseCopy.altBasketValidation}
+                    {' '}
+                    시그널 페이지에서는 차트 심볼을 자유롭게 바꿀 수 있으며, 검증 성과는 여기 선택한 코인 묶음과 별개로 표시됩니다.
+                  </p>
+                  <EditorAltValidationSection
+                    altSymDraft={altSymDraft}
+                    setAltSymDraft={setAltSymDraft}
+                    altValidationSymbols={altValidationSymbols}
+                    setAltValidationSymbols={setAltValidationSymbols}
+                    pairOptions={binancePairMetaEditor}
+                    className="mt-2 space-y-2"
+                  />
+                </div>
+              )}
 
               <div>
                 <label className="text-[10px] text-slate-400 block mb-1">전략 이름</label>
@@ -2319,58 +2530,76 @@ export default function EditorPage({
               </Card.Header>
               <Card.Content className="space-y-3">
                 <div>
-                  <SectionHeader title="손절 방식" sub="하나만 선택" />
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                    {STOP_CONDITIONS.map((s) => (
-                      <button
-                        key={s.id}
-                        type="button"
-                        onClick={() => { setStopType(s.id); setSaveError('') }}
-                        className={cn(
-                          'text-left px-2.5 py-2 rounded-lg border transition-colors',
-                          stopType === s.id
-                            ? 'border-slate-900 bg-slate-50 dark:border-slate-100 dark:bg-gray-800/40'
-                            : 'border-slate-200 dark:border-gray-800 hover:bg-slate-50/70 dark:hover:bg-gray-800/25',
+                  <SectionHeader title="손절 규칙" sub="여러 개 허용" />
+                  <div className="space-y-2">
+                    {normalizeStopRules(stopRules).map((rule) => (
+                      <div key={rule.id} className="rounded-lg border border-slate-200 dark:border-gray-800 p-2.5 space-y-2">
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={rule.type}
+                            onChange={(e) => setStopRules((prev) => normalizeStopRules(prev).map((x) => x.id === rule.id ? { ...x, type: e.target.value } : x))}
+                            className="h-8 text-[11px] px-2 border border-gray-200 dark:border-gray-700 rounded-md bg-white dark:bg-gray-900"
+                          >
+                            {STOP_RULE_CONDITIONS.map((opt) => (
+                              <option key={opt.id} value={opt.id}>{opt.label}</option>
+                            ))}
+                          </select>
+                          <span className="text-[10px] text-slate-400 flex-1">{STOP_RULE_CONDITIONS.find((x) => x.id === rule.type)?.hint ?? ''}</span>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            disabled={normalizeStopRules(stopRules).length <= 1}
+                            onClick={() => setStopRules((prev) => normalizeStopRules(prev).filter((x) => x.id !== rule.id))}
+                          >
+                            삭제
+                          </Button>
+                        </div>
+                        {rule.type === 'fixed_pct' && (
+                          <Input
+                            type="number"
+                            placeholder="예: 2"
+                            value={rule.value}
+                            onChange={(e) => setStopRules((prev) => normalizeStopRules(prev).map((x) => x.id === rule.id ? { ...x, value: e.target.value } : x))}
+                          />
                         )}
-                      >
-                        <p className="text-[11px] font-semibold text-slate-800 dark:text-slate-200">{s.simpleLabel ?? s.label}</p>
-                        <p className="text-[10px] text-slate-400 mt-0.5 leading-snug">{s.hint}</p>
-                      </button>
+                        {rule.type === 'atr_stop' && (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <Input
+                              type="number"
+                              placeholder="ATR 기간"
+                              value={rule.atrPeriod}
+                              onChange={(e) => setStopRules((prev) => normalizeStopRules(prev).map((x) => x.id === rule.id ? { ...x, atrPeriod: e.target.value } : x))}
+                            />
+                            <Input
+                              type="number"
+                              placeholder="ATR 배수"
+                              value={rule.atrMult}
+                              onChange={(e) => setStopRules((prev) => normalizeStopRules(prev).map((x) => x.id === rule.id ? { ...x, atrMult: e.target.value } : x))}
+                            />
+                          </div>
+                        )}
+                        {rule.type === 'condition_expr' && (
+                          <Input
+                            placeholder="예: close < ema50 && rsi < 35"
+                            value={rule.conditionExpr}
+                            onChange={(e) => setStopRules((prev) => normalizeStopRules(prev).map((x) => x.id === rule.id ? { ...x, conditionExpr: e.target.value } : x))}
+                          />
+                        )}
+                      </div>
                     ))}
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => setStopRules((prev) => [...normalizeStopRules(prev), newStopRule('fixed_pct')])}
+                    >
+                      손절 규칙 추가
+                    </Button>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {stopType === 'fixed_pct' && (
-                    <div>
-                      <label className="text-[10px] text-slate-400 block mb-1">손절 (% 진입가 대비)</label>
-                      <Input type="number" placeholder="예: 2" value={stopValue} onChange={(e) => setStopValue(e.target.value)} />
-                    </div>
-                  )}
-                  {stopType === 'trailing' && (
-                    <div>
-                      <label className="text-[10px] text-slate-400 block mb-1">트레일링 스탑 (%)</label>
-                      <Input type="number" placeholder="예: 3" value={trailingStopPct || stopValue} onChange={(e) => { setTrailingStopPct(e.target.value); setStopValue(e.target.value) }} />
-                    </div>
-                  )}
-                  {stopType === 'time_based' && (
-                    <div>
-                      <label className="text-[10px] text-slate-400 block mb-1">시간 기반 청산 (봉 수)</label>
-                      <Input type="number" min={1} placeholder="예: 24" value={timeExitBars} onChange={(e) => setTimeExitBars(e.target.value)} />
-                    </div>
-                  )}
-                  {stopType === 'atr_stop' && (
-                    <>
-                      <div>
-                        <label className="text-[10px] text-slate-400 block mb-1">ATR 기간</label>
-                        <Input type="number" value={atrPeriod} onChange={(e) => setAtrPeriod(e.target.value)} />
-                      </div>
-                      <div>
-                        <label className="text-[10px] text-slate-400 block mb-1">ATR 배수</label>
-                        <Input type="number" value={atrMult} onChange={(e) => setAtrMult(e.target.value)} />
-                      </div>
-                    </>
-                  )}
                   <div>
                     <label className="text-[10px] text-slate-400 block mb-1">익절 (%)</label>
                     <Input type="number" placeholder="예: 6" value={takeProfitPct} onChange={(e) => setTakeProfitPct(e.target.value)} />
@@ -2521,14 +2750,42 @@ export default function EditorPage({
               <div>
                 <Card.Title>결과 프리뷰</Card.Title>
                 <p className="text-[11px] text-slate-500 mt-0.5">
-                  입력이 바뀌면 자동으로 갱신됩니다. 하단 <span className="font-medium text-slate-700 dark:text-slate-300">테스트 실행</span>으로 수동 재계산도 할 수 있어요.
+                  입력이 바뀌면 자동으로 갱신됩니다. 필요하면 테스트 버튼으로 수동 재계산할 수 있어요.
                 </p>
                 <p className="mt-2 text-[11px] text-slate-600 dark:text-slate-400 line-clamp-2 border-l-2 border-blue-200 dark:border-blue-900/50 pl-2">
                   <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">상태 요약 · </span>
                   {oneLineSummary || '이름·조건·자산을 채우면 여기에 한 줄로 요약됩니다.'}
                 </p>
               </div>
-              <Badge variant="default">{asset || '—'} · {TIMEFRAME_LABEL[timeframe] ?? timeframe}</Badge>
+              <div className="flex flex-col items-end gap-2">
+                <Badge variant="default">{asset || '—'} · {TIMEFRAME_LABEL[timeframe] ?? timeframe}</Badge>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={handleDraft}
+                    disabled={saveLoading || submittingMarket || !currentUser || saveLimitReached}
+                  >
+                    저장
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={handleRunTest}
+                    disabled={testRunning || strategyKind === 'method'}
+                  >
+                    {testRunning ? '실행 중…' : '테스트'}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={handleSubmit}
+                    disabled={saveLoading || submittingMarket || saveLimitReached || !currentUser}
+                  >
+                    {submittingMarket ? '제출 중…' : '마켓 제출'}
+                  </Button>
+                </div>
+              </div>
             </Card.Header>
             <Card.Content className="space-y-3">
               {(previewError || testError) && (
@@ -2709,57 +2966,6 @@ export default function EditorPage({
           </Card>
           </SectionErrorBoundary>
         </aside>
-      </div>
-
-      {/* ── 하단 액션 바 (항상 보임) ───────────────────── */}
-      <div className="
-        fixed bottom-0 left-0 right-0
-        border-t border-slate-200/80 dark:border-gray-800
-        bg-white/95 dark:bg-gray-900/95 backdrop-blur-sm
-        z-40
-      ">
-        <PageShell wide className="py-3">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-            <div className="min-w-0">
-              <p className="text-[10px] text-slate-500 font-semibold">요약</p>
-              <p className="text-[11px] text-slate-700 dark:text-slate-300 truncate">{oneLineSummary}</p>
-              {canSubmitToMarket && strategyKind !== 'method' && (
-                <p className="mt-1 text-[10px] text-slate-500 leading-snug">
-                  마켓 제출: 자동 검증 — 최소 거래 {MIN_MARKET_TRADES}회, 백테스트 구간 약 {MIN_MARKET_PERIOD_DAYS}일 이상, MDD {MAX_MARKET_MDD_BLOCK}% 이하. 제출 시 코드·메타가 저장되고 상태는 <span className="font-semibold">검수 대기(submitted)</span>입니다. 승인 후 마켓에 공개됩니다.
-                </p>
-              )}
-              {(saveError || saveErrorMessage) && (
-                <p className="mt-1 text-[11px] text-red-600 truncate">{saveError || saveErrorMessage}</p>
-              )}
-            </div>
-            <div className="flex flex-wrap items-center justify-end gap-2 flex-shrink-0">
-              <Button
-                variant="secondary"
-                size="md"
-                onClick={handleDraft}
-                disabled={saveLoading || submittingMarket || !currentUser || saveLimitReached}
-              >
-                저장
-              </Button>
-              <Button
-                variant="primary"
-                size="md"
-                onClick={handleRunTest}
-                disabled={testRunning || strategyKind === 'method'}
-              >
-                {testRunning ? '실행 중…' : '테스트 실행'}
-              </Button>
-              <Button
-                variant="secondary"
-                size="md"
-                onClick={handleSubmit}
-                disabled={saveLoading || submittingMarket || saveLimitReached || !currentUser}
-              >
-                {submittingMarket ? '제출 중…' : '마켓 제출'}
-              </Button>
-            </div>
-          </div>
-        </PageShell>
       </div>
 
     </PageShell>
