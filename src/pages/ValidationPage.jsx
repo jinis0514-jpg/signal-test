@@ -235,6 +235,10 @@ export default function ValidationPage({
   /** 카탈로그 전략만, 최대 3개 — 검증 탭「전략 비교」표용 */
   const [comparePickIds, setComparePickIds] = useState([])
 
+  const userStrat = isUserStrategyId(strategyId)
+    ? (userStrategies.find((s) => s.id === strategyId) ?? getUserStrategyById(strategyId))
+    : null
+
   useEffect(() => {
     setValidationNavSection('summary')
   }, [strategyId])
@@ -252,9 +256,6 @@ export default function ValidationPage({
 
   const u = user ?? { plan: 'free', trialDaysLeft: 7, unlockedStrategyIds: ['btc-trend'] }
 
-  const userStrat = isUserStrategyId(strategyId)
-    ? (userStrategies.find((s) => s.id === strategyId) ?? getUserStrategyById(strategyId))
-    : null
   const mockValId = userStrat
     ? (ASSET_TO_SIM_ID[userStrat.asset] ?? SAFE_VAL[0].id)
     : strategyId

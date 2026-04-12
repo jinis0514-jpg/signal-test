@@ -1,7 +1,7 @@
 import { cn } from '../../lib/cn'
 
 const breakdownCard =
-  'rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900'
+  'min-w-0 rounded-2xl border border-slate-200 bg-white p-5 sm:p-6 shadow-sm dark:border-gray-700 dark:bg-gray-900'
 
 function BreakdownList({ items }) {
   const list = Array.isArray(items) ? items.filter(Boolean) : []
@@ -9,9 +9,9 @@ function BreakdownList({ items }) {
     return <p className="mt-3 text-sm text-slate-400">데이터 부족</p>
   }
   return (
-    <ul className="mt-3 space-y-2 text-sm text-slate-600 dark:text-slate-400">
+    <ul className="mt-3 space-y-2.5 text-sm text-slate-600 dark:text-slate-400">
       {list.map((line, i) => (
-        <li key={i} className="leading-snug">
+        <li key={i} className="leading-relaxed break-words [overflow-wrap:anywhere]">
           {line}
         </li>
       ))}
@@ -40,7 +40,7 @@ export default function StrategyBreakdownSection({ breakdown, className, showMet
         </div>
       </div>
 
-      <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="mt-5 grid grid-cols-1 gap-5 md:grid-cols-2 md:gap-6">
         <div className={breakdownCard}>
           <p className="text-[11px] uppercase tracking-[0.18em] text-emerald-500">
             Strong Market
