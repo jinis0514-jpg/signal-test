@@ -3,6 +3,7 @@
  */
 
 import { computeStrategyStatus, TRUST_LEVEL } from './strategyTrust'
+import { resolveStrategyClassification, parseAvgHoldingHours } from './strategyClassification'
 
 function safeNum(v, fb = 0) {
   const n = Number(v)
@@ -168,6 +169,12 @@ export function normalizeMarketStrategy(raw) {
       monthlyPriceKrw: 0,
       monthly_price: 0,
       riskLevelMarket: '보통',
+      typeKey: 'trend',
+      typeLabel: '추세형',
+      profileKey: 'stable',
+      profileLabel: '안정형',
+      profileSummary: '',
+      strategyTypeLabel: '추세형',
     }
   }
 
@@ -257,9 +264,17 @@ export function normalizeMarketStrategy(raw) {
   )
 
   const styleTypeLabel = deriveStrategyTypeLabel({ totalReturnPct, maxDrawdown, tradeCount, recentRoi7d })
-  const normalizedTypeLabel = String(raw?.type ?? 'signal') === 'method'
+  const classification = resolveStrategyClassification(raw, {
+    totalReturnPct,
+    winRate,
+    tradeCount,
+    maxDrawdown,
+    avgHoldingHours: parseAvgHoldingHours(raw.avgHolding),
+  })
+
+  const methodTypeLabel = String(raw?.type ?? 'signal') === 'method'
     ? (raw?.typeLabel ?? '매매법')
-    : styleTypeLabel
+    : null
 
   return {
     ...raw,
@@ -280,7 +295,11 @@ export function normalizeMarketStrategy(raw) {
     monthlyPriceKrw,
     monthly_price: monthlyPriceKrw,
     riskLevelMarket,
-    typeLabel: normalizedTypeLabel,
+    typeKey: classification.typeKey,
+    typeLabel: methodTypeLabel ?? classification.typeLabel,
+    profileKey: classification.profileKey,
+    profileLabel: classification.profileLabel,
+    profileSummary: classification.profileSummary,
     strategyTypeLabel: styleTypeLabel,
     summary,
     trustScore,

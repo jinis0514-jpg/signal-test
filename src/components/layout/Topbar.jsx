@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom'
 import { Sun, Moon, Home, BarChart3, LineChart, FlaskConical, Code2, UserCircle2, ShieldCheck } from 'lucide-react'
 import NotificationDropdown from './NotificationDropdown'
 import { cn } from '../../lib/cn'
+import Logo from '../Logo'
 import { getPlanLabel } from '../../lib/userPlan'
 
 const NAV_ITEMS = [
@@ -64,16 +65,7 @@ export default function Topbar({
         className="flex items-center gap-2.5 flex-shrink-0 rounded-lg hover:opacity-90 transition-opacity text-left"
         title="랜딩 페이지"
       >
-        <div className="
-          w-7 h-7 rounded-lg
-          bg-slate-900 dark:bg-white
-          flex items-center justify-center flex-shrink-0
-        ">
-          <span className="text-white dark:text-slate-900 font-bold text-[12px] font-mono leading-none">Q</span>
-        </div>
-        <span className="text-[14px] font-bold text-slate-900 dark:text-slate-100 tracking-tight whitespace-nowrap">
-          Quant Terminal
-        </span>
+        <Logo size={28} className="gap-2.5" textClassName="text-[14px] whitespace-nowrap" />
       </button>
 
       {/* 구분선 */}

@@ -26,6 +26,8 @@ import {
 import { REVIEW_STATUS } from '../lib/userStrategies'
 import { rolling7dPnlPct } from '../lib/retentionSnapshot'
 import { createSupportMessage, SupportInboxError } from '../lib/supportInboxService'
+import { useFavoriteStrategies } from '../hooks/useFavoriteStrategies'
+import { useRecentViewedStrategies } from '../hooks/useRecentViewedStrategies'
 
 function safeNum(v, fb = 0) {
   const n = Number(v)
@@ -248,6 +250,54 @@ function MyStrategiesSection({ user, items = [], onEditStrategy, onNavigate }) {
   )
 }
 
+function FavoriteStrategiesSection({ items = [], onNavigate }) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return <EmptyState title="즐겨찾기 전략이 없습니다" description="전략 마켓에서 별 아이콘으로 북마크해 보세요." bordered />
+  }
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+      {items.map((item) => (
+        <Card key={item.id}>
+          <Card.Content className="py-3">
+            <p className="text-[13px] font-semibold text-slate-800 dark:text-slate-200 truncate">{item.name}</p>
+            <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">ID: {item.id}</p>
+            <div className="mt-2">
+              <Button variant="secondary" size="sm" type="button" onClick={() => onNavigate?.('market')}>
+                마켓에서 확인
+              </Button>
+            </div>
+          </Card.Content>
+        </Card>
+      ))}
+    </div>
+  )
+}
+
+function RecentViewedStrategiesSection({ items = [], onNavigate }) {
+  if (!Array.isArray(items) || items.length === 0) {
+    return <EmptyState title="최근 본 전략이 없습니다" description="마켓/홈에서 전략 상세를 열면 이곳에 기록됩니다." bordered />
+  }
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
+      {items.map((item) => (
+        <Card key={item.id}>
+          <Card.Content className="py-3">
+            <p className="text-[13px] font-semibold text-slate-800 dark:text-slate-200 truncate">{item.name}</p>
+            <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+              최근 확인: {fmtDate(item.updatedAt)}
+            </p>
+            <div className="mt-2">
+              <Button variant="secondary" size="sm" type="button" onClick={() => onNavigate?.('market')}>
+                다시 보러 가기
+              </Button>
+            </div>
+          </Card.Content>
+        </Card>
+      ))}
+    </div>
+  )
+}
+
 function NotificationSettingsSection({
   subscribedStrategies = [],
   globalSettings,
@@ -364,6 +414,49 @@ function SaveManageActions({ onRefreshStrategies, onNavigate, onGoPlans }) {
   )
 }
 
+const MYPAGE_SECTIONS = [
+  { id: 'home', label: '요약' },
+  { id: 'subscriptions', label: '구독 관리' },
+  { id: 'strategies', label: '내 전략' },
+  { id: 'favorites', label: '즐겨찾기' },
+  { id: 'notifications', label: '알림 설정' },
+  { id: 'exchange', label: '거래소 연결' },
+  { id: 'account', label: '계정 설정' },
+  { id: 'plans', label: '결제·플랜' },
+]
+
+function HomeSummaryStrip({
+  subscribedCount,
+  favoriteCount,
+  recentCount,
+  onGoSection,
+}) {
+  const cells = [
+    { label: '구독 중 전략', value: String(subscribedCount), onClick: () => onGoSection?.('subscriptions') },
+    { label: '즐겨찾기', value: String(favoriteCount), onClick: () => onGoSection?.('favorites') },
+    { label: '최근 본 전략', value: String(recentCount), onClick: () => onGoSection?.('favorites') },
+    { label: '거래소 연결', value: '확인', sub: 'API 연결 상태', onClick: () => onGoSection?.('exchange') },
+  ]
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+      {cells.map((c) => (
+        <button
+          key={c.label}
+          type="button"
+          onClick={c.onClick}
+          className="rounded-xl border border-slate-200 bg-white px-3 py-3 text-left transition-colors hover:border-slate-300 hover:bg-slate-50 dark:border-gray-700 dark:bg-gray-900/50 dark:hover:border-gray-600 dark:hover:bg-gray-800/40"
+        >
+          <p className="text-[10px] font-medium text-slate-500 dark:text-slate-400">{c.label}</p>
+          <p className={cn('mt-1 text-[20px] font-bold tabular-nums text-slate-900 dark:text-slate-100', c.sub && 'text-[15px]')}>
+            {c.value}
+          </p>
+          {c.sub && <p className="mt-0.5 text-[10px] text-slate-500">{c.sub}</p>}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 const FEEDBACK_CATEGORIES = ['기능 제안', 'UX', '기타']
 const INQUIRY_CATEGORIES = ['결제', '계정', '버그', '전략', '기타']
 
@@ -454,6 +547,8 @@ export default function MyPage({
   onRefreshStrategies,
 }) {
   const navigate = useNavigate()
+  const { favorites: favoriteStrategies } = useFavoriteStrategies()
+  const { recentViewed } = useRecentViewedStrategies()
   const u = user ?? { plan: 'free', trialDaysLeft: 7, unlockedStrategyIds: [], strategyNotifySettings: {} }
   const myStrategies = Array.isArray(userStrategies) ? userStrategies : []
   const unlocked = Array.isArray(u.unlockedStrategyIds) ? u.unlockedStrategyIds : []
@@ -488,6 +583,7 @@ export default function MyPage({
     title: '',
     content: '',
   })
+  const [activeSection, setActiveSection] = useState('home')
   useEffect(() => {
     setStrategyNotifySettings(u?.strategyNotifySettings ?? {})
   }, [u?.strategyNotifySettings])
@@ -526,118 +622,193 @@ export default function MyPage({
         )}
       />
 
-      <div className="space-y-5">
-        <section>
-          <h2 className="text-[16px] font-semibold mb-2">프로필 / 계정 요약</h2>
-          <ProfileSummaryCard
-            currentUser={currentUser}
-            profile={profile}
-            user={u}
-            subscribedCount={subscribedStrategies.length}
-            myStrategiesCount={myStrategies.length}
-            notifySummary={notifySummary}
-          />
-        </section>
+      <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+        <nav
+          className="shrink-0 rounded-xl border border-slate-200 bg-white p-2 dark:border-gray-700 dark:bg-gray-900/40 lg:w-52"
+          aria-label="마이페이지 메뉴"
+        >
+          <ul className="flex flex-row gap-1 overflow-x-auto pb-1 lg:flex-col lg:overflow-visible lg:pb-0">
+            {MYPAGE_SECTIONS.map((item) => (
+              <li key={item.id} className="shrink-0 lg:w-full">
+                <button
+                  type="button"
+                  onClick={() => setActiveSection(item.id)}
+                  className={cn(
+                    'w-full rounded-lg px-3 py-2 text-left text-[12px] font-medium transition-colors whitespace-nowrap lg:whitespace-normal',
+                    activeSection === item.id
+                      ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900'
+                      : 'text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-gray-800',
+                  )}
+                >
+                  {item.label}
+                </button>
+              </li>
+            ))}
+          </ul>
+        </nav>
 
-        <section>
-          <h2 className="text-[16px] font-semibold mb-2">현재 플랜 / 업그레이드</h2>
-          <PlanStatusCard
-            user={u}
-            subscribedCount={subscribedStrategies.length}
-            myStrategiesCount={myStrategies.length}
-            onGoPlans={onGoPlans}
-            onNavigate={onNavigate}
-          />
-          {!hasPaidPlanFeatures(u) && (
-            <p className="mt-2 text-[11px] text-red-600 dark:text-red-400">{PLAN_MESSAGES.notifications}</p>
+        <div className="min-w-0 flex-1 space-y-4">
+          {activeSection === 'home' && (
+            <section className="space-y-3">
+              <h2 className="text-[15px] font-semibold text-slate-900 dark:text-slate-100">요약</h2>
+              <HomeSummaryStrip
+                subscribedCount={subscribedStrategies.length}
+                favoriteCount={favoriteStrategies.length}
+                recentCount={recentViewed.length}
+                onGoSection={setActiveSection}
+              />
+              <div className="rounded-xl border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-900/30 px-3 py-3">
+                <p className="text-[12px] font-semibold text-slate-800 dark:text-slate-200 mb-2">최근 본 전략</p>
+                {recentViewed.length === 0 ? (
+                  <p className="text-[11px] text-slate-500">아직 기록이 없습니다. 마켓에서 전략 상세를 열어 보세요.</p>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {recentViewed.slice(0, 4).map((item) => (
+                      <li key={item.id} className="flex items-center justify-between gap-2 text-[11px]">
+                        <span className="truncate font-medium text-slate-800 dark:text-slate-200">{item.name}</span>
+                        <Button variant="ghost" size="sm" className="h-7 text-[10px] shrink-0" type="button" onClick={() => onNavigate?.('market')}>
+                          마켓
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </section>
           )}
-          <div className="mt-2 rounded-lg border border-slate-200 dark:border-gray-700 overflow-x-auto">
-            <table className="w-full min-w-[520px] text-[11px]">
-              <thead className="bg-slate-50 dark:bg-gray-900/50">
-                <tr>
-                  <th className="text-left px-3 py-2">기능</th>
-                  <th className="text-center px-3 py-2">무료</th>
-                  <th className="text-center px-3 py-2">스탠다드</th>
-                  <th className="text-center px-3 py-2">프로</th>
-                  <th className="text-center px-3 py-2">프리미엄</th>
-                </tr>
-              </thead>
-              <tbody>
-                {PLAN_COMPARISON_FEATURES.slice(0, 6).map((f) => (
-                  <tr key={f.key} className="border-t border-slate-100 dark:border-gray-800">
-                    <td className="px-3 py-2">{f.label}</td>
-                    <td className="px-3 py-2 text-center">{f.free}</td>
-                    <td className="px-3 py-2 text-center">{f.starter}</td>
-                    <td className="px-3 py-2 text-center">{f.pro}</td>
-                    <td className="px-3 py-2 text-center">{f.premium}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
 
-        <section>
-          <h2 className="text-[16px] font-semibold mb-2">내 구독 전략</h2>
-          <SubscribedStrategiesSection items={subscribedStrategies} notifySettings={strategyNotifySettings} onNavigate={onNavigate} />
-        </section>
+          {activeSection === 'subscriptions' && (
+            <section className="space-y-3">
+              <h2 className="text-[15px] font-semibold text-slate-900 dark:text-slate-100">구독 관리</h2>
+              <SubscribedStrategiesSection items={subscribedStrategies} notifySettings={strategyNotifySettings} onNavigate={onNavigate} />
+            </section>
+          )}
 
-        <section>
-          <h2 className="text-[16px] font-semibold mb-2">내 등록 전략</h2>
-          <MyStrategiesSection user={u} items={myStrategies} onEditStrategy={onEditStrategy} onNavigate={onNavigate} />
-        </section>
+          {activeSection === 'strategies' && (
+            <section className="space-y-3">
+              <h2 className="text-[15px] font-semibold text-slate-900 dark:text-slate-100">내 등록 전략</h2>
+              <MyStrategiesSection user={u} items={myStrategies} onEditStrategy={onEditStrategy} onNavigate={onNavigate} />
+            </section>
+          )}
 
-        <section>
-          <h2 className="text-[16px] font-semibold mb-2">알림 설정</h2>
-          <NotificationSettingsSection
-            subscribedStrategies={subscribedStrategies}
-            globalSettings={globalNotify}
-            onChangeGlobal={(key, value) => setGlobalNotify((p) => ({ ...p, [key]: value }))}
-            settingsByStrategy={strategyNotifySettings}
-            onToggleStrategy={(strategyId, key, value) => {
-              setStrategyNotifySettings((prev) => ({
-                ...prev,
-                [strategyId]: {
-                  all: true,
-                  long: true,
-                  short: true,
-                  exit: true,
-                  ...(prev[strategyId] ?? {}),
-                  [key]: value,
-                },
-              }))
-            }}
-            currentUser={currentUser}
-          />
-        </section>
+          {activeSection === 'favorites' && (
+            <section className="space-y-4">
+              <h2 className="text-[15px] font-semibold text-slate-900 dark:text-slate-100">즐겨찾기</h2>
+              <FavoriteStrategiesSection items={favoriteStrategies} onNavigate={onNavigate} />
+              <h3 className="text-[13px] font-semibold text-slate-800 dark:text-slate-200 pt-2">최근 본 전략</h3>
+              <RecentViewedStrategiesSection items={recentViewed} onNavigate={onNavigate} />
+            </section>
+          )}
 
-        <section>
-          <h2 className="text-[16px] font-semibold mb-2">거래소 API 연결</h2>
-          <ExchangeConnectionForm />
-        </section>
+          {activeSection === 'notifications' && (
+            <section className="space-y-3">
+              <h2 className="text-[15px] font-semibold text-slate-900 dark:text-slate-100">알림 설정</h2>
+              <NotificationSettingsSection
+                subscribedStrategies={subscribedStrategies}
+                globalSettings={globalNotify}
+                onChangeGlobal={(key, value) => setGlobalNotify((p) => ({ ...p, [key]: value }))}
+                settingsByStrategy={strategyNotifySettings}
+                onToggleStrategy={(strategyId, key, value) => {
+                  setStrategyNotifySettings((prev) => ({
+                    ...prev,
+                    [strategyId]: {
+                      all: true,
+                      long: true,
+                      short: true,
+                      exit: true,
+                      ...(prev[strategyId] ?? {}),
+                      [key]: value,
+                    },
+                  }))
+                }}
+                currentUser={currentUser}
+              />
+            </section>
+          )}
 
-        <section>
-          <h2 className="text-[16px] font-semibold mb-2">계정 / 인증 정보</h2>
-          <AccountInfoSection
-            currentUser={currentUser}
-            profile={profile}
-            authError={authError}
-            onLogout={onLogout}
-            onRefreshStrategies={onRefreshStrategies}
-          />
-        </section>
+          {activeSection === 'exchange' && (
+            <section className="space-y-3">
+              <h2 className="text-[15px] font-semibold text-slate-900 dark:text-slate-100">거래소 API 연결</h2>
+              <ExchangeConnectionForm />
+            </section>
+          )}
 
-        <section>
-          <h2 className="text-[16px] font-semibold mb-2">저장 / 관리 액션</h2>
-          <SaveManageActions onRefreshStrategies={onRefreshStrategies} onNavigate={onNavigate} onGoPlans={onGoPlans} />
-          <div className="mt-2 rounded-[8px] border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-3">
-            <p className="text-[12px] font-semibold text-slate-800 dark:text-slate-200 mb-2">피드백 / 문의</p>
-            <div className="flex flex-wrap gap-2">
-              <Button variant="secondary" size="sm" type="button" onClick={() => openSupportModal('feedback')}>피드백 보내기</Button>
-              <Button variant="primary" size="sm" type="button" onClick={() => openSupportModal('inquiry')}>문의 / 상담하기</Button>
-            </div>
-          </div>
-        </section>
+          {activeSection === 'account' && (
+            <section className="space-y-4">
+              <h2 className="text-[15px] font-semibold text-slate-900 dark:text-slate-100">계정 설정</h2>
+              <ProfileSummaryCard
+                currentUser={currentUser}
+                profile={profile}
+                user={u}
+                subscribedCount={subscribedStrategies.length}
+                myStrategiesCount={myStrategies.length}
+                notifySummary={notifySummary}
+              />
+              <AccountInfoSection
+                currentUser={currentUser}
+                profile={profile}
+                authError={authError}
+                onLogout={onLogout}
+                onRefreshStrategies={onRefreshStrategies}
+              />
+              <SaveManageActions onRefreshStrategies={onRefreshStrategies} onNavigate={onNavigate} onGoPlans={onGoPlans} />
+              <div className="rounded-[8px] border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-3">
+                <p className="text-[12px] font-semibold text-slate-800 dark:text-slate-200 mb-2">피드백 / 문의</p>
+                <p className="mb-2 text-[11px] text-slate-500 dark:text-slate-400">문의가 필요하신가요?</p>
+                <div className="flex flex-wrap gap-2">
+                  <Button variant="secondary" size="sm" type="button" onClick={() => openSupportModal('feedback')}>피드백 보내기</Button>
+                  <Button variant="primary" size="sm" type="button" onClick={() => openSupportModal('inquiry')}>문의 / 상담하기</Button>
+                  <a
+                    href="mailto:support@bb-platform.com"
+                    className="inline-flex items-center rounded-md border border-slate-200 px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 hover:text-slate-900 dark:border-gray-700 dark:text-slate-300 dark:hover:text-slate-100"
+                  >
+                    이메일 문의
+                  </a>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {activeSection === 'plans' && (
+            <section className="space-y-3">
+              <h2 className="text-[15px] font-semibold text-slate-900 dark:text-slate-100">결제·플랜</h2>
+              <PlanStatusCard
+                user={u}
+                subscribedCount={subscribedStrategies.length}
+                myStrategiesCount={myStrategies.length}
+                onGoPlans={onGoPlans}
+                onNavigate={onNavigate}
+              />
+              {!hasPaidPlanFeatures(u) && (
+                <p className="text-[11px] text-red-600 dark:text-red-400">{PLAN_MESSAGES.notifications}</p>
+              )}
+              <div className="rounded-lg border border-slate-200 dark:border-gray-700 overflow-x-auto">
+                <table className="w-full min-w-[520px] text-[11px]">
+                  <thead className="bg-slate-50 dark:bg-gray-900/50">
+                    <tr>
+                      <th className="text-left px-3 py-2">기능</th>
+                      <th className="text-center px-3 py-2">무료</th>
+                      <th className="text-center px-3 py-2">스탠다드</th>
+                      <th className="text-center px-3 py-2">프로</th>
+                      <th className="text-center px-3 py-2">프리미엄</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {PLAN_COMPARISON_FEATURES.slice(0, 6).map((f) => (
+                      <tr key={f.key} className="border-t border-slate-100 dark:border-gray-800">
+                        <td className="px-3 py-2">{f.label}</td>
+                        <td className="px-3 py-2 text-center">{f.free}</td>
+                        <td className="px-3 py-2 text-center">{f.starter}</td>
+                        <td className="px-3 py-2 text-center">{f.pro}</td>
+                        <td className="px-3 py-2 text-center">{f.premium}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+        </div>
       </div>
 
       <SupportFormModal

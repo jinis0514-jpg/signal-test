@@ -8,6 +8,7 @@ import { StrategyCardSkeleton } from '../components/ui/Skeleton'
 import MarketFilters         from '../components/market/MarketFilters'
 import MarketSortBar         from '../components/market/MarketSortBar'
 import MarketStrategyCard    from '../components/market/MarketStrategyCard'
+import StrategyComparePanel  from '../components/market/StrategyComparePanel'
 import StrategyTable         from '../components/market/StrategyTable'
 import StrategyDetailModal   from '../components/market/StrategyDetailModal'
 import {
@@ -15,12 +16,25 @@ import {
   applyMarketFilters,
 } from '../data/marketMockData'
 import { normalizeMarketStrategy, assignMarketBadges } from '../lib/marketStrategy'
+import { getStrategyLiveState } from '../lib/strategyLiveState'
 import { getApprovedStrategies } from '../lib/strategyService'
 import { mergeApprovedAndOperator } from '../lib/mergeMarketStrategies'
 import { getCachedPrice } from '../lib/priceCache'
 import { isMarketLocked } from '../lib/userPlan'
 import { formatUsd, formatKrw } from '../lib/priceFormat'
 import { copy as assetUniverseCopy } from '../lib/assetValidationUniverse'
+import { useFavoriteStrategies } from '../hooks/useFavoriteStrategies'
+import {
+  classifyMarketState,
+  recommendStrategiesByMarket,
+} from '../lib/marketStateEngine'
+import {
+  buildRecommendedPortfolio,
+  describePortfolioMix,
+  buildStrategyPortfolio,
+} from '../lib/strategyPortfolioEngine'
+
+const LS_MARKET_SEARCH = 'bb_market_search_v1'
 function fmtPct(v) {
   const n = Number(v)
   if (!Number.isFinite(n)) return '—'
@@ -45,14 +59,8 @@ function metric(strategy) {
   const trades = Number(strategy?.tradeCount ?? strategy?.trades ?? 0)
   const r7 = Number(strategy?.recentRoi7d ?? strategy?.roi7d ?? 0)
   const r30 = Number(strategy?.recentRoi30d ?? strategy?.roi30d ?? 0)
-  const dir = strategy?.recentSignals?.[0]?.dir ?? strategy?.currentDir
-  const pos = (() => {
-    if (!dir) return '대기'
-    const s = String(dir).toUpperCase()
-    if (s === 'LONG' || s === 'BUY') return 'LONG'
-    if (s === 'SHORT' || s === 'SELL') return 'SHORT'
-    return '대기'
-  })()
+  const ls = getStrategyLiveState(strategy)
+  const pos = ls.kind === 'long_open' ? 'LONG' : ls.kind === 'short_open' ? 'SHORT' : '대기'
   return { ret, mdd, win, trades, r7, r30, pos }
 }
 
@@ -96,17 +104,27 @@ export default function MarketPage({
   dataVersion = 0,
 }) {
   const u = user ?? { plan: 'free', trialDaysLeft: 7, unlockedStrategyIds: [] }
-  const [filters,          setFilters]          = useState(DEFAULT_FILTERS)
+  const [filters,          setFilters]          = useState(() => {
+    try {
+      const savedSearch = localStorage.getItem(LS_MARKET_SEARCH) ?? ''
+      return { ...DEFAULT_FILTERS, search: savedSearch }
+    } catch {
+      return DEFAULT_FILTERS
+    }
+  })
   const [viewMode,         setViewMode]         = useState('card')
   const [selectedStrategy, setSelectedStrategy] = useState(null)
   const [comparedIds, setComparedIds] = useState([])
   const [strategies,       setStrategies]       = useState([])
   const [loading,          setLoading]          = useState(true)
   const [error,            setError]            = useState('')
+  const [listRetryNonce,   setListRetryNonce]   = useState(0)
   const [btcDisplay,       setBtcDisplay]       = useState(null)
+  const [ethDisplay,       setEthDisplay]       = useState(null)
   const [btcPriceError,    setBtcPriceError]    = useState('')
   const [lastSlowUpdateAt, setLastSlowUpdateAt] = useState(0)
   const btcPriceFirstFetchRef = useRef(true)
+  const { favoriteSet, toggleFavoriteStrategy } = useFavoriteStrategies()
 
   function handleSimulate(strategy) {
     const isMethod = String(strategy?.type ?? 'signal') === 'method'
@@ -136,8 +154,21 @@ export default function MarketPage({
   }
 
   function handleReset() {
-    setFilters(DEFAULT_FILTERS)
+    setFilters({ ...DEFAULT_FILTERS, search: '' })
+    try {
+      localStorage.setItem(LS_MARKET_SEARCH, '')
+    } catch {
+      // ignore
+    }
   }
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(LS_MARKET_SEARCH, String(filters.search ?? ''))
+    } catch {
+      // ignore
+    }
+  }, [filters.search])
 
   /* Supabase approved/published 전략만 로드 (마켓 source of truth) */
   useEffect(() => {
@@ -201,7 +232,7 @@ export default function MarketPage({
     }
     load()
     return () => { cancelled = true }
-  }, [dataVersion])
+  }, [dataVersion, listRetryNonce])
 
   useEffect(() => {
     let cancelled = false
@@ -210,9 +241,13 @@ export default function MarketPage({
     ;(async () => {
       try {
         if (btcPriceFirstFetchRef.current) setBtcPriceError('')
-        const t = await getCachedPrice('BTC')
+        const [tBtc, tEth] = await Promise.all([
+          getCachedPrice('BTC'),
+          getCachedPrice('ETH'),
+        ])
         if (!cancelled) {
-          setBtcDisplay((prev) => t ?? prev)
+          setBtcDisplay((prev) => tBtc ?? prev)
+          setEthDisplay((prev) => tEth ?? prev)
           setLastSlowUpdateAt(Date.now())
         }
       } catch (e) {
@@ -227,9 +262,13 @@ export default function MarketPage({
 
     const timer = setInterval(async () => {
       try {
-        const t = await getCachedPrice('BTC')
+        const [tBtc, tEth] = await Promise.all([
+          getCachedPrice('BTC'),
+          getCachedPrice('ETH'),
+        ])
         if (!cancelled) {
-          setBtcDisplay((prev) => t ?? prev)
+          setBtcDisplay((prev) => tBtc ?? prev)
+          setEthDisplay((prev) => tEth ?? prev)
           setLastSlowUpdateAt(Date.now())
         }
       } catch {
@@ -243,24 +282,67 @@ export default function MarketPage({
     }
   }, [])
 
-  const filtered = useMemo(
-    () => assignMarketBadges(applyMarketFilters(strategies, filters)),
-    [strategies, filters],
+  const marketStateEngineInput = useMemo(() => {
+    const btc = Number(btcDisplay?.changePercent)
+    const eth = Number(ethDisplay?.changePercent)
+    const avgRangePct = (Math.abs(Number.isFinite(btc) ? btc : 0) + Math.abs(Number.isFinite(eth) ? eth : 0)) / 2
+    return {
+      btcChange24h: Number.isFinite(btc) ? btc : 0,
+      ethChange24h: Number.isFinite(eth) ? eth : 0,
+      avgRangePct,
+      dominanceTrend: '',
+      volumeTrend: '',
+    }
+  }, [btcDisplay?.changePercent, ethDisplay?.changePercent])
+
+  const marketStateClassified = useMemo(
+    () => classifyMarketState(marketStateEngineInput),
+    [marketStateEngineInput],
   )
+
+  const marketRecommendedTopIds = useMemo(() => {
+    const top = recommendStrategiesByMarket(strategies, marketStateClassified)
+    return new Set(top.map((s) => s.id))
+  }, [strategies, marketStateClassified])
+
+  const marketSignalStrategies = useMemo(
+    () => strategies.filter((s) => String(s.type ?? 'signal') !== 'method'),
+    [strategies],
+  )
+
+  const marketPortfolioBundle = useMemo(
+    () => buildRecommendedPortfolio(marketSignalStrategies, marketStateClassified),
+    [marketSignalStrategies, marketStateClassified],
+  )
+
+  const marketPortfolioMixText = useMemo(
+    () => describePortfolioMix(marketPortfolioBundle.picks),
+    [marketPortfolioBundle],
+  )
+
+  const marketPortfolioRoles = useMemo(
+    () => buildStrategyPortfolio(marketSignalStrategies),
+    [marketSignalStrategies],
+  )
+
+  const filtered = useMemo(() => {
+    let list = assignMarketBadges(applyMarketFilters(strategies, filters))
+    const lens = filters.marketLens ?? []
+    if (lens.includes('fit')) {
+      list = list.filter((s) => marketRecommendedTopIds.has(s.id))
+    }
+    if (lens.includes('trend')) {
+      list = list.filter((s) => s.typeKey === 'trend' || s.typeLabel === '추세형')
+    }
+    if (lens.includes('scalping')) {
+      list = list.filter((s) => s.typeKey === 'scalping' || s.typeLabel === '단타형')
+    }
+    return list
+  }, [strategies, filters, marketRecommendedTopIds])
 
   const comparedStrategies = useMemo(() => {
     return filtered.filter((s) => comparedIds.includes(s.id))
   }, [filtered, comparedIds])
-
-  const bestComparedStrategy = useMemo(() => {
-    if (!comparedStrategies.length) return null
-    const sorted = [...comparedStrategies].sort((a, b) => {
-      const aScore = Number(a.trustScore ?? 0) + Number(a.totalReturnPct ?? a.roi ?? 0) * 0.3
-      const bScore = Number(b.trustScore ?? 0) + Number(b.totalReturnPct ?? b.roi ?? 0) * 0.3
-      return bScore - aScore
-    })
-    return sorted[0]
-  }, [comparedStrategies])
 
   const featured = useMemo(() => {
     const score = (s) => {
@@ -286,18 +368,18 @@ export default function MarketPage({
     return list.slice(0, 1)
   }, [filtered, u])
 
-  /* TOP 3 랭킹 — 전체 목록 기준 (필터 무관) */
-  const top3Rankings = useMemo(() => {
+  /* TOP 5 랭킹 — 전체 목록 기준 (필터 무관) */
+  const topRankings = useMemo(() => {
     const valid = strategies.filter((s) => String(s.type ?? 'signal') !== 'method')
-    const top3By = (key, dir = 'desc') => {
+    const topBy = (key, dir = 'desc') => {
       const arr = [...valid].filter((s) => Number.isFinite(Number(s[key])))
       arr.sort((a, b) => dir === 'desc' ? Number(b[key]) - Number(a[key]) : Number(a[key]) - Number(b[key]))
-      return arr.slice(0, 3)
+      return arr.slice(0, 5)
     }
     return {
-      recent:  top3By('recentRoi7d', 'desc'),
-      stable:  top3By('maxDrawdown', 'asc'),
-      winRate: top3By('winRate', 'desc'),
+      roi: topBy('totalReturnPct', 'desc'),
+      winRate: topBy('winRate', 'desc'),
+      recentRise: topBy('recentRoi7d', 'desc'),
     }
   }, [strategies])
 
@@ -358,6 +440,47 @@ export default function MarketPage({
           {assetUniverseCopy.altBasketValidation}
         </p>
 
+        {!loading && marketPortfolioBundle.picks.length > 0 && (
+          <div className="mb-4 rounded-xl border border-slate-200/90 bg-gradient-to-br from-slate-50/90 to-white px-3 py-2.5 shadow-sm dark:border-gray-700 dark:from-gray-900/85 dark:to-gray-900/50">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[11px] font-semibold text-slate-800 dark:text-slate-100">
+                조합 추천 · {marketPortfolioBundle.summary}
+              </p>
+              <span className="text-[10px] text-slate-400 tabular-nums">
+                {marketStateClassified.marketTrend ?? ''} · 변동성 {marketStateClassified.volatilityLabel ?? '—'}
+              </span>
+            </div>
+            <p className="mt-1 text-[10px] text-slate-600 dark:text-slate-400 leading-snug">
+              {marketPortfolioBundle.reason}
+            </p>
+            <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-500">
+              {marketPortfolioMixText}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {marketPortfolioBundle.picks.map((s) => (
+                <button
+                  key={`pf-${s.id}`}
+                  type="button"
+                  onClick={() => handleOpenDetail(s)}
+                  className="max-w-full truncate rounded-lg border border-slate-200 bg-white/90 px-2.5 py-1 text-left text-[10px] font-medium text-slate-800 transition-colors hover:border-sky-300 hover:bg-sky-50/80 dark:border-gray-700 dark:bg-gray-900/60 dark:text-slate-100 dark:hover:border-sky-800 dark:hover:bg-sky-950/30"
+                >
+                  {s.name}
+                </button>
+              ))}
+            </div>
+            {(marketPortfolioRoles.stable || marketPortfolioRoles.aggressive) ? (
+              <p className="mt-2 text-[9px] text-slate-500 dark:text-slate-500 leading-relaxed">
+                성격 보완 참고:
+                {' '}
+                {[
+                  marketPortfolioRoles.stable && `안정 ${marketPortfolioRoles.stable.name}`,
+                  marketPortfolioRoles.aggressive && `공격 ${marketPortfolioRoles.aggressive.name}`,
+                ].filter(Boolean).join(' · ')}
+              </p>
+            ) : null}
+          </div>
+        )}
+
         {comparedStrategies.length > 0 && (
           <>
             <div className="sticky top-0 z-20 mb-4 rounded-xl border border-slate-200 bg-white/95 backdrop-blur px-4 py-3 dark:border-gray-700 dark:bg-gray-900/95">
@@ -367,10 +490,16 @@ export default function MarketPage({
                     전략 비교 {comparedStrategies.length}/3
                   </p>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    수익률, MDD, 승률, 신뢰도를 한눈에 비교하세요
+                    성격·성과·리스크·신뢰를 함께 보세요. 아래 패널에서 요약과 표를 확인합니다.
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
+                  <a
+                    href="#market-strategy-compare"
+                    className="hidden sm:inline h-8 px-3 text-xs leading-8 rounded-md border border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-gray-700 dark:text-slate-400 dark:hover:bg-gray-800"
+                  >
+                    표로 이동
+                  </a>
                   <button
                     type="button"
                     onClick={() => setComparedIds([])}
@@ -382,117 +511,31 @@ export default function MarketPage({
               </div>
             </div>
 
-            <div className="mb-5 overflow-x-auto rounded-xl border border-slate-200 bg-white dark:border-gray-700 dark:bg-gray-900/60">
-              <table className="w-full min-w-[720px] text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200 dark:border-gray-700">
-                    <th className="px-4 py-3 text-left text-slate-500">항목</th>
-                    {comparedStrategies.map((s) => (
-                      <th key={s.id} className="px-4 py-3 text-left text-slate-900 dark:text-slate-100">
-                        {s.name}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr className="border-b border-slate-100 dark:border-gray-800">
-                    <td className="px-4 py-3 text-slate-500">신뢰도</td>
-                    {comparedStrategies.map((s) => (
-                      <td key={s.id} className="px-4 py-3 font-semibold">
-                        {s.trustScore ?? '-'}점
-                      </td>
-                    ))}
-                  </tr>
-                  <tr className="border-b border-slate-100 dark:border-gray-800">
-                    <td className="px-4 py-3 text-slate-500">수익률</td>
-                    {comparedStrategies.map((s) => (
-                      <td key={s.id} className="px-4 py-3 font-semibold">
-                        {Number.isFinite(Number(s.totalReturnPct ?? s.roi))
-                          ? `${Number(s.totalReturnPct ?? s.roi) >= 0 ? '+' : ''}${Number(s.totalReturnPct ?? s.roi).toFixed(1)}%`
-                          : '—'}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr className="border-b border-slate-100 dark:border-gray-800">
-                    <td className="px-4 py-3 text-slate-500">MDD</td>
-                    {comparedStrategies.map((s) => (
-                      <td key={s.id} className="px-4 py-3">
-                        {Number.isFinite(Number(s.maxDrawdown ?? s.mdd))
-                          ? `-${Math.abs(Number(s.maxDrawdown ?? s.mdd)).toFixed(1)}%`
-                          : '—'}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr className="border-b border-slate-100 dark:border-gray-800">
-                    <td className="px-4 py-3 text-slate-500">승률</td>
-                    {comparedStrategies.map((s) => (
-                      <td key={s.id} className="px-4 py-3">
-                        {Number.isFinite(Number(s.winRate)) ? `${Number(s.winRate).toFixed(1)}%` : '—'}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr className="border-b border-slate-100 dark:border-gray-800">
-                    <td className="px-4 py-3 text-slate-500">거래 수</td>
-                    {comparedStrategies.map((s) => (
-                      <td key={s.id} className="px-4 py-3">
-                        {Number.isFinite(Number(s.tradeCount ?? s.trades)) ? Number(s.tradeCount ?? s.trades).toLocaleString() : '—'}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr className="border-b border-slate-100 dark:border-gray-800">
-                    <td className="px-4 py-3 text-slate-500">최근 30일</td>
-                    {comparedStrategies.map((s) => (
-                      <td key={s.id} className="px-4 py-3">
-                        {Number.isFinite(Number(s.recentRoi30d ?? s.roi30d))
-                          ? `${Number(s.recentRoi30d ?? s.roi30d) >= 0 ? '+' : ''}${Number(s.recentRoi30d ?? s.roi30d).toFixed(1)}%`
-                          : '—'}
-                      </td>
-                    ))}
-                  </tr>
-                  <tr>
-                    <td className="px-4 py-3 text-slate-500">현재 상태</td>
-                    {comparedStrategies.map((s) => (
-                      <td key={s.id} className="px-4 py-3">
-                        {s.recentSignals?.[0]?.dir ?? s.currentDir ?? '대기'}
-                      </td>
-                    ))}
-                  </tr>
-                </tbody>
-              </table>
+            <div className="mb-5">
+              <StrategyComparePanel strategies={comparedStrategies} marketState={marketStateClassified} />
             </div>
-
-            {bestComparedStrategy && (
-              <div className="mt-3 mb-5 rounded-lg border border-emerald-200 bg-emerald-50/70 px-4 py-3 dark:border-emerald-900/50 dark:bg-emerald-950/20">
-                <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
-                  비교 기준상 가장 유리한 전략: {bestComparedStrategy.name}
-                </p>
-                <p className="mt-1 text-xs text-emerald-700/80 dark:text-emerald-300/80">
-                  신뢰도와 최근 성과를 함께 기준으로 계산했습니다.
-                </p>
-              </div>
-            )}
           </>
         )}
 
-        {/* ── 랭킹 (탐색) TOP 3 ── */}
+        {/* ── 랭킹 (탐색) TOP 5 ── */}
         {!loading && strategies.length > 0 && (
           <div className="market-top-ranking">
             <div className="mb-2">
               <h2 className="product-section-h text-[15px]">랭킹으로 빠르게 찾기</h2>
-              <p className="product-section-sub text-[12px]">최근 성과·안정성·승률 중에서 관심 있는 축부터 짧은 리스트로 좁혀 보세요.</p>
+              <p className="product-section-sub text-[12px]">수익률/승률/최근 상승 전략 TOP 5를 먼저 비교해 빠르게 고를 수 있습니다.</p>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
 
-              {/* 최근 성과 TOP 3 */}
+              {/* 수익률 TOP 5 */}
               <div className="rounded-lg border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-hidden">
                 <div className="flex items-center gap-1.5 px-3 py-2 border-b border-slate-100 dark:border-gray-800 bg-emerald-50/90 dark:bg-emerald-950/20">
                   <Trophy size={11} strokeWidth={1.8} className="text-emerald-600 dark:text-emerald-400" />
-                  <span className="text-[9px] font-bold text-emerald-800 dark:text-emerald-300 uppercase tracking-widest">최근 성과 TOP</span>
+                  <span className="text-[9px] font-bold text-emerald-800 dark:text-emerald-300 uppercase tracking-widest">수익률 TOP 5</span>
                 </div>
-                {top3Rankings.recent.length === 0 ? (
+                {topRankings.roi.length === 0 ? (
                   <p className="px-3 py-3 text-[10px] text-slate-400">데이터 없음</p>
                 ) : (
-                  top3Rankings.recent.map((s, i) => (
+                  topRankings.roi.map((s, i) => (
                     <button
                       key={s.id}
                       type="button"
@@ -510,58 +553,25 @@ export default function MarketPage({
                       </p>
                       <span className={cn(
                         'text-[11px] font-bold tabular-nums shrink-0',
-                        Number(s.recentRoi7d) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500',
+                        Number(s.totalReturnPct ?? s.roi) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500',
                       )}>
-                        7일 {fmtPct(s.recentRoi7d)}
+                        {fmtPct(s.totalReturnPct ?? s.roi)}
                       </span>
                     </button>
                   ))
                 )}
               </div>
 
-              {/* 안정성 TOP 3 (MDD 낮은 순) */}
-              <div className="rounded-lg border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-hidden">
-                <div className="flex items-center gap-1.5 px-3 py-2 border-b border-slate-100 dark:border-gray-800 bg-slate-50 dark:bg-gray-800/40">
-                  <Shield size={11} strokeWidth={1.8} className="text-slate-600 dark:text-slate-400" />
-                  <span className="text-[9px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-widest">안정성 TOP · MDD 낮음</span>
-                </div>
-                {top3Rankings.stable.length === 0 ? (
-                  <p className="px-3 py-3 text-[10px] text-slate-400">데이터 없음</p>
-                ) : (
-                  top3Rankings.stable.map((s, i) => (
-                    <button
-                      key={s.id}
-                      type="button"
-                      onClick={() => handleOpenDetail(s)}
-                      className="w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-gray-800/40 transition-colors border-b border-slate-50 dark:border-gray-800/60 last:border-b-0"
-                    >
-                      <span className={cn(
-                        'text-[11px] font-bold w-4 shrink-0 tabular-nums',
-                        i === 0 ? 'text-amber-500' : i === 1 ? 'text-slate-400' : 'text-orange-400',
-                      )}>
-                        {i + 1}
-                      </span>
-                      <p className="flex-1 min-w-0 text-[11px] font-semibold text-slate-800 dark:text-slate-200 truncate">
-                        {s.name}
-                      </p>
-                      <span className="text-[11px] font-bold tabular-nums text-red-600 dark:text-red-400 shrink-0">
-                        MDD −{Number(s.maxDrawdown ?? 0).toFixed(1)}%
-                      </span>
-                    </button>
-                  ))
-                )}
-              </div>
-
-              {/* 승률 TOP 3 */}
+              {/* 승률 TOP 5 */}
               <div className="rounded-lg border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-hidden">
                 <div className="flex items-center gap-1.5 px-3 py-2 border-b border-slate-100 dark:border-gray-800 bg-blue-50/80 dark:bg-blue-950/25">
                   <Percent size={11} strokeWidth={1.8} className="text-blue-600 dark:text-blue-400" />
-                  <span className="text-[9px] font-bold text-blue-800 dark:text-blue-300 uppercase tracking-widest">승률 TOP</span>
+                  <span className="text-[9px] font-bold text-blue-800 dark:text-blue-300 uppercase tracking-widest">승률 TOP 5</span>
                 </div>
-                {top3Rankings.winRate.length === 0 ? (
+                {topRankings.winRate.length === 0 ? (
                   <p className="px-3 py-3 text-[10px] text-slate-400">데이터 없음</p>
                 ) : (
-                  top3Rankings.winRate.map((s, i) => (
+                  topRankings.winRate.map((s, i) => (
                     <button
                       key={s.id}
                       type="button"
@@ -582,6 +592,42 @@ export default function MarketPage({
                         Number(s.winRate) >= 55 ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-300',
                       )}>
                         {Number(s.winRate).toFixed(1)}%
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+
+              {/* 최근 상승 전략 TOP 5 */}
+              <div className="rounded-lg border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-hidden">
+                <div className="flex items-center gap-1.5 px-3 py-2 border-b border-slate-100 dark:border-gray-800 bg-slate-50 dark:bg-gray-800/40">
+                  <Shield size={11} strokeWidth={1.8} className="text-slate-600 dark:text-slate-400" />
+                  <span className="text-[9px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-widest">최근 상승 전략</span>
+                </div>
+                {topRankings.recentRise.length === 0 ? (
+                  <p className="px-3 py-3 text-[10px] text-slate-400">데이터 없음</p>
+                ) : (
+                  topRankings.recentRise.map((s, i) => (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => handleOpenDetail(s)}
+                      className="w-full text-left px-3 py-2 flex items-center gap-2 hover:bg-slate-50 dark:hover:bg-gray-800/40 transition-colors border-b border-slate-50 dark:border-gray-800/60 last:border-b-0"
+                    >
+                      <span className={cn(
+                        'text-[11px] font-bold w-4 shrink-0 tabular-nums',
+                        i === 0 ? 'text-amber-500' : i === 1 ? 'text-slate-400' : 'text-orange-400',
+                      )}>
+                        {i + 1}
+                      </span>
+                      <p className="flex-1 min-w-0 text-[11px] font-semibold text-slate-800 dark:text-slate-200 truncate">
+                        {s.name}
+                      </p>
+                      <span className={cn(
+                        'text-[11px] font-bold tabular-nums shrink-0',
+                        Number(s.recentRoi7d) >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500',
+                      )}>
+                        7일 {fmtPct(s.recentRoi7d)}
                       </span>
                     </button>
                   ))
@@ -621,11 +667,14 @@ export default function MarketPage({
                     onStartTrial={onStartTrial}
                     onGoSubscription={onGoSubscription}
                     onSubscribe={onSubscribe}
+                    onToggleFavorite={toggleFavoriteStrategy}
+                    isFavorite={favoriteSet.has(s.id)}
                     onToggleCompare={handleToggleCompare}
                     compared={comparedIds.includes(s.id)}
+                    marketState={marketStateClassified}
                   />
                   <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-                    유형: {s.typeLabel ?? '추세형'} · 최대 손실 -{Number(s.maxDrawdown ?? s.mdd ?? 0).toFixed(1)}% · {Number(s.maxDrawdown ?? s.mdd ?? 0) >= 15 ? '변동성 있음' : '변동성 낮음'}
+                    분류: {s.typeLabel ?? '추세형'} · {s.profileLabel ?? '안정형'} · 최대 손실 -{Number(s.maxDrawdown ?? s.mdd ?? 0).toFixed(1)}% · {Number(s.maxDrawdown ?? s.mdd ?? 0) >= 15 ? '변동성 있음' : '변동성 낮음'}
                   </p>
                 </div>
               ))}
@@ -653,9 +702,10 @@ export default function MarketPage({
           </div>
         </div>
 
-        {error && (
-          <div className="mb-2">
-            <p className="text-[10px] text-amber-500">{error}</p>
+        {loading && strategies.length > 0 && (
+          <div className="mb-2 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/90 px-3 py-2 text-[11px] text-slate-600 dark:border-gray-700 dark:bg-gray-800/50 dark:text-slate-300">
+            <span className="inline-block h-2 w-2 rounded-full bg-blue-500 animate-pulse shrink-0" aria-hidden />
+            목록을 새로 고치는 중입니다…
           </div>
         )}
 
@@ -665,6 +715,22 @@ export default function MarketPage({
               <StrategyCardSkeleton key={i} />
             ))}
           </div>
+        ) : strategies.length === 0 && error ? (
+          <EmptyState
+            icon={<Package size={28} strokeWidth={1.2} />}
+            title="전략 목록을 불러오지 못했습니다"
+            description={`${error} 다시 시도하거나 문의해주세요.`}
+            action={
+              <div className="flex flex-wrap gap-2 justify-center">
+                <Button variant="primary" size="sm" type="button" onClick={() => setListRetryNonce((n) => n + 1)}>
+                  다시 시도
+                </Button>
+                <Button variant="secondary" size="sm" type="button" onClick={() => onNavigate?.('home')}>
+                  홈으로
+                </Button>
+              </div>
+            }
+          />
         ) : strategies.length === 0 ? (
           <EmptyState
             icon={<Package size={28} strokeWidth={1.2} />}
@@ -684,8 +750,8 @@ export default function MarketPage({
         ) : filtered.length === 0 ? (
           <EmptyState
             icon={<Package size={28} strokeWidth={1.2} />}
-            title="조건에 맞는 전략이 없습니다"
-            description="필터를 조정하거나 검색어를 변경해보세요."
+            title="검색 결과가 없습니다"
+            description="다른 키워드로 검색해보세요."
             action={
               <Button variant="secondary" size="sm" onClick={handleReset}>
                 필터 초기화
@@ -706,8 +772,11 @@ export default function MarketPage({
                 onStartTrial={onStartTrial}
                 onGoSubscription={onGoSubscription}
                 onSubscribe={onSubscribe}
+                onToggleFavorite={toggleFavoriteStrategy}
+                isFavorite={favoriteSet.has(s.id)}
                 onToggleCompare={handleToggleCompare}
                 compared={comparedIds.includes(s.id)}
+                marketState={marketStateClassified}
               />
             ))}
           </div>
@@ -726,6 +795,15 @@ export default function MarketPage({
 
       <StrategyDetailModal
         strategy={selectedStrategy}
+        strategyPool={strategies}
+        onOpenRelatedStrategy={(s) => setSelectedStrategy(s)}
+        marketEvaluationContext={{
+          btcChangePercent: btcDisplay?.changePercent,
+          ethChange24h: ethDisplay?.changePercent,
+          avgRangePct: marketStateEngineInput.avgRangePct,
+          dominanceTrend: '',
+          volumeTrend: '',
+        }}
         onClose={() => setSelectedStrategy(null)}
         onSimulate={
           selectedStrategy ? () => handleSimulate(selectedStrategy) : undefined
@@ -751,6 +829,13 @@ export default function MarketPage({
         onStartTrial={onStartTrial}
         onCopyToEditor={onCopyStrategyToEditor}
         user={u}
+        onToggleCompare={handleToggleCompare}
+        isCompared={!!selectedStrategy && comparedIds.includes(selectedStrategy.id)}
+        compareAddDisabled={
+          !!selectedStrategy
+          && comparedIds.length >= 3
+          && !comparedIds.includes(selectedStrategy.id)
+        }
       />
     </div>
   )

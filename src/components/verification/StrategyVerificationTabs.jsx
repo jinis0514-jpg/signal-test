@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
+import { cn } from '../../lib/cn'
+import { panelBase, panelSoft, panelPositive, panelWarning, panelDanger } from '../../lib/panelStyles'
 import VerificationBadge from './VerificationBadge'
 import LivePerformanceChart from './LivePerformanceChart'
 import TradeComparisonTable from './TradeComparisonTable'
@@ -7,21 +9,28 @@ import { fetchLivePerformanceDaily, fetchLivePerformanceSummary } from '../../li
 import { getVerificationBadgeConfig, THRESHOLDS } from '../../lib/verificationBadge'
 import { computeTrustScore, getTrustGrade } from '../../lib/strategyTrustScore'
 
-function KpiCard({ label, value, sub, hint, positive }) {
+function KpiCard({ label, value, sub, positive }) {
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 p-3">
-      <div className="text-[11px] text-slate-500 dark:text-slate-400 mb-1">{label}</div>
-      <div className={`text-lg font-bold ${
-        positive === true ? 'text-emerald-600 dark:text-emerald-400'
-          : positive === false ? 'text-red-500'
-          : 'text-slate-800 dark:text-slate-100'
-      }`}>
+    <div className={cn(panelBase, 'p-4 flex flex-col gap-2')}>
+      <p className="text-[11px] text-slate-500 dark:text-slate-400">{label}</p>
+      <p
+        className={cn(
+          'mt-2 text-2xl font-bold tabular-nums text-slate-900 dark:text-slate-100',
+          positive === true && 'text-emerald-600 dark:text-emerald-400',
+          positive === false && 'text-red-600 dark:text-red-400',
+        )}
+      >
         {value}
-      </div>
-      {sub && <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">{sub}</div>}
-      {hint && <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 leading-snug">{hint}</div>}
+      </p>
+      {sub ? <p className="mt-1 text-xs text-slate-400 dark:text-slate-500">{sub}</p> : null}
     </div>
   )
+}
+
+function headlinePanelClass(tone) {
+  if (tone === 'positive') return panelPositive
+  if (tone === 'negative') return panelDanger
+  return panelWarning
 }
 
 function TabDescription({ children }) {
@@ -39,12 +48,6 @@ const TABS = [
   { id: 'comparison', label: '시그널 vs 체결' },
 ]
 
-const HEADLINE_STYLES = {
-  positive: 'border-emerald-200 bg-emerald-50/70 dark:border-emerald-900/60 dark:bg-emerald-950/20',
-  negative: 'border-red-200 bg-red-50/70 dark:border-red-900/60 dark:bg-red-950/20',
-  neutral: 'border-amber-200 bg-amber-50/70 dark:border-amber-900/60 dark:bg-amber-950/20',
-}
-
 const BADGE_DESCRIPTIONS = {
   backtest_only: '과거 데이터만 검증된 상태',
   live_verified: '전략 등록 이후 실시간 검증 단계',
@@ -55,6 +58,9 @@ export default function StrategyVerificationTabs({
   strategy,
   className = '',
 }) {
+  const safeStrategy =
+    strategy != null && typeof strategy === 'object' && !Array.isArray(strategy) ? strategy : null
+
   const [activeTab, setActiveTab] = useState('backtest')
   const [summary, setSummary] = useState(null)
   const [dailyPerf, setDailyPerf] = useState([])
@@ -62,7 +68,7 @@ export default function StrategyVerificationTabs({
   const [matches, setMatches] = useState([])
   const [loading, setLoading] = useState(false)
 
-  const strategyId = strategy?.id
+  const strategyId = safeStrategy?.id
 
   const loadData = useCallback(async () => {
     if (!strategyId) return
@@ -75,9 +81,9 @@ export default function StrategyVerificationTabs({
         fetchTradeMatches(strategyId, { limit: 100 }),
       ])
       setSummary(s)
-      setDailyPerf(dp)
+      setDailyPerf(Array.isArray(dp) ? dp : [])
       setLiveSummary(ls)
-      setMatches(m)
+      setMatches(Array.isArray(m) ? m : [])
     } catch {
       /* mock 폴백 */
     } finally {
@@ -87,17 +93,20 @@ export default function StrategyVerificationTabs({
 
   useEffect(() => { loadData() }, [loadData])
 
-  const perf = strategy?.performance ?? strategy?.backtest_meta ?? {}
+  /** API/모킹에서 null·비배열이 오면 비교 탭·테이블이 깨지지 않게 */
+  const matchesList = Array.isArray(matches) ? matches : []
+
+  const perf = safeStrategy?.performance ?? safeStrategy?.backtest_meta ?? {}
   const bt = {
-    roi: perf.totalReturnPct ?? perf.roi ?? strategy?.roi ?? '-',
-    winRate: perf.winRate ?? perf.win_rate ?? strategy?.winRate ?? '-',
-    mdd: perf.maxDrawdown ?? perf.mdd ?? strategy?.mdd ?? '-',
-    trades: perf.tradeCount ?? perf.totalTrades ?? perf.trade_count ?? strategy?.trades ?? '-',
+    roi: perf.totalReturnPct ?? perf.roi ?? safeStrategy?.roi ?? '-',
+    winRate: perf.winRate ?? perf.win_rate ?? safeStrategy?.winRate ?? '-',
+    mdd: perf.maxDrawdown ?? perf.mdd ?? safeStrategy?.mdd ?? '-',
+    trades: perf.tradeCount ?? perf.totalTrades ?? perf.trade_count ?? safeStrategy?.trades ?? '-',
     sharpe: perf.sharpe ?? perf.sharpeRatio ?? '-',
     periodDays: perf.periodDays ?? '-',
   }
 
-  const verLevel = summary?.verified_badge_level ?? strategy?.verified_badge_level ?? 'backtest_only'
+  const verLevel = summary?.verified_badge_level ?? safeStrategy?.verified_badge_level ?? 'backtest_only'
   const badgeConfig = getVerificationBadgeConfig(verLevel)
 
   /* ── 1) 상단 검증 요약 ─────────────────────────── */
@@ -149,17 +158,17 @@ export default function StrategyVerificationTabs({
 
   /* ── 2) comparison 탭 요약 ─────────────────────── */
   const comparisonSummary = useMemo(() => {
-    if (!Array.isArray(matches) || matches.length === 0) {
+    if (matchesList.length === 0) {
       return { total: 0, verified: 0, sideMatched: 0, sideMatchRate: null, avgPriceDiff: null }
     }
 
-    const total = matches.length
-    const verified = matches.filter((m) => m?.is_verified_match).length
-    const sideMatchedRows = matches.filter((m) => m?.side_matched === true)
+    const total = matchesList.length
+    const verified = matchesList.filter((m) => m?.is_verified_match).length
+    const sideMatchedRows = matchesList.filter((m) => m?.side_matched === true)
     const sideMatched = sideMatchedRows.length
     const sideMatchRate = total > 0 ? (sideMatchedRows.length / total) * 100 : null
 
-    const priceDiffs = matches
+    const priceDiffs = matchesList
       .map((m) => Number(m?.price_diff_pct))
       .filter((n) => Number.isFinite(n))
     const avgPriceDiff = priceDiffs.length
@@ -167,7 +176,7 @@ export default function StrategyVerificationTabs({
       : null
 
     return { total, verified, sideMatched, sideMatchRate, avgPriceDiff }
-  }, [matches])
+  }, [matchesList])
 
   /* ── 4) 라이브 탭 해석 ─────────────────────────── */
   const liveInterpretation = useMemo(() => {
@@ -202,15 +211,23 @@ export default function StrategyVerificationTabs({
       matchRate: summary?.match_rate,
       verifiedReturn: summary?.verified_return_pct,
       liveReturn30d: liveSummary?.roi30d,
-      maxDrawdown: strategy?.performance?.maxDrawdown,
+      maxDrawdown: safeStrategy?.performance?.maxDrawdown,
       tradeCount: summary?.last_30_signal_count,
       hasRealVerification: Boolean(summary),
     })
-  }, [summary, liveSummary, strategy])
+  }, [summary, liveSummary, safeStrategy])
 
   const trustGrade = useMemo(() => {
     return getTrustGrade(trustScore)
   }, [trustScore])
+
+  if (!safeStrategy) {
+    return (
+      <div className={cn('rounded-lg border border-slate-200 dark:border-gray-700 bg-slate-50/80 dark:bg-gray-900/40 px-4 py-6 text-center text-sm text-slate-500 dark:text-slate-400', className)}>
+        전략 정보가 없어 검증 탭을 표시할 수 없습니다.
+      </div>
+    )
+  }
 
   return (
     <div className={className}>
@@ -221,11 +238,14 @@ export default function StrategyVerificationTabs({
       </div>
 
       {/* ── 1) 상단 검증 요약 박스 ──────────────────── */}
-      <div className={`rounded-lg border p-4 mb-4 ${HEADLINE_STYLES[verificationHeadline.tone]}`}>
-        <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+      <div className={cn(headlinePanelClass(verificationHeadline.tone), 'p-4 mb-4')}>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
+          Verification summary
+        </p>
+        <p className="mt-2 text-sm font-semibold text-slate-900 dark:text-slate-100">
           {verificationHeadline.title}
         </p>
-        <p className="mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-400">
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
           {verificationHeadline.desc}
         </p>
       </div>
@@ -275,33 +295,30 @@ export default function StrategyVerificationTabs({
             <VerificationBadge level="backtest_only" size="xs" />
             <span className="text-xs text-slate-500 dark:text-slate-400">등록 시점의 과거 데이터 기반 성과</span>
           </div>
-          <div className="grid grid-cols-3 gap-2 mb-3">
+          <div className="grid grid-cols-3 gap-3 mb-3">
             <KpiCard
               label="수익률"
               value={`${bt.roi}%`}
-              sub="실거래 기준 성과와 분리"
+              sub="선택 구간 누적 성과"
               positive={Number(bt.roi) > 0}
-              hint={Number(bt.roi) > 30 ? '높을수록 유리하지만 유지 여부 확인 필요' : undefined}
             />
             <KpiCard
               label="승률"
               value={`${bt.winRate}%`}
               sub="60% 이상이면 안정적인 편"
               positive={Number(bt.winRate) >= 50}
-              hint={Number(bt.winRate) >= 60 ? '안정 구간' : Number(bt.winRate) < 50 ? '주의 구간' : undefined}
             />
             <KpiCard
               label="MDD"
               value={`${bt.mdd}%`}
-              sub="낮을수록 안정적인 전략"
+              sub="낮을수록 안정적"
               positive={Number(bt.mdd) <= 10}
-              hint={Number(bt.mdd) >= 20 ? '20% 이상이면 위험 구간' : undefined}
             />
           </div>
-          <div className="grid grid-cols-3 gap-2">
-            <KpiCard label="거래 수" value={bt.trades} sub="표본이 많을수록 신뢰도 상승" hint={Number(bt.trades) < 30 ? '표본 부족 구간' : undefined} />
-            <KpiCard label="샤프 비율" value={bt.sharpe} sub="1 이상이면 양호" positive={Number(bt.sharpe) > 1} hint={Number(bt.sharpe) > 1.5 ? '우수한 위험 대비 수익' : undefined} />
-            <KpiCard label="테스트 기간" value={`${bt.periodDays}일`} sub="백테스트 기준" hint={Number(bt.periodDays) < 90 ? '짧은 테스트 기간 — 과최적화 가능성' : undefined} />
+          <div className="grid grid-cols-3 gap-3">
+            <KpiCard label="거래 수" value={bt.trades} sub="표본이 많을수록 신뢰도 상승" />
+            <KpiCard label="샤프 비율" value={bt.sharpe} sub="1 이상이면 양호" positive={Number(bt.sharpe) > 1} />
+            <KpiCard label="테스트 기간" value={`${bt.periodDays}일`} sub="90일 미만은 과최적화 가능성" />
           </div>
         </div>
       )}
@@ -320,13 +337,12 @@ export default function StrategyVerificationTabs({
           </div>
 
           {liveSummary && (
-            <div className="grid grid-cols-3 gap-2 mb-4">
+            <div className="grid grid-cols-3 gap-3 mb-4">
               <KpiCard
                 label="최근 7일"
                 value={liveSummary.roi7d != null ? `${liveSummary.roi7d > 0 ? '+' : ''}${liveSummary.roi7d}%` : '-'}
-                sub="단기 성과 방향"
+                sub="짧은 구간 누적 손익"
                 positive={liveSummary.roi7d > 0}
-                hint={liveSummary.roi7d != null && liveSummary.roi7d < -5 ? '최근 급격한 손실 발생' : undefined}
               />
               <KpiCard
                 label="최근 30일"
@@ -337,25 +353,39 @@ export default function StrategyVerificationTabs({
               <KpiCard
                 label="MDD"
                 value={liveSummary.latestMdd != null ? `${liveSummary.latestMdd}%` : '-'}
-                sub="10% 이하면 안정 · 20% 이상 위험"
+                sub="낮을수록 안정적"
                 positive={liveSummary.latestMdd != null && liveSummary.latestMdd <= 10}
-                hint={liveSummary.latestMdd >= 20 ? '위험 구간' : undefined}
               />
             </div>
           )}
 
-          <LivePerformanceChart dailyData={dailyPerf} />
-
-          {summary && (
-            <div className="mt-3 text-[11px] text-slate-400 dark:text-slate-500">
-              시그널: {summary.last_30_signal_count ?? 0}개 (최근 30개 기준)
+          <div className={cn(panelBase, 'overflow-hidden mb-4')}>
+            <div className="px-4 pt-3 pb-2 border-b border-slate-100 dark:border-gray-800">
+              <p className="text-xs font-semibold text-slate-900 dark:text-slate-100">일별 누적 수익률</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                {summary ? `시그널 ${summary.last_30_signal_count ?? 0}개 (최근 30개 기준)` : '라이브 구간 누적'}
+              </p>
             </div>
-          )}
+            <div className="p-3">
+              <LivePerformanceChart dailyData={dailyPerf} />
+            </div>
+            <p className="px-4 pb-3 text-xs text-slate-500 dark:text-slate-400">
+              등록 이후 라이브 데이터 기준 참고
+            </p>
+          </div>
 
-          {/* 4) 백테스트 대비 해석 문장 */}
           {liveInterpretation && (
-            <div className="mt-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 px-3 py-2 text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
-              {liveInterpretation.text}
+            <div
+              className={cn(
+                liveInterpretation.tone === 'positive'
+                  ? panelPositive
+                  : liveInterpretation.tone === 'negative'
+                    ? panelDanger
+                    : panelSoft,
+                'p-4',
+              )}
+            >
+              <p className="text-sm text-slate-700 dark:text-slate-300">{liveInterpretation.text}</p>
             </div>
           )}
 
@@ -378,79 +408,69 @@ export default function StrategyVerificationTabs({
 
           {verLevel === 'trade_verified' && summary && (
             <>
-              <div className="grid grid-cols-3 gap-2 mb-4">
+              <div className="grid grid-cols-3 gap-3 mb-4">
                 <KpiCard
                   label="매칭률"
-                  value={`${summary.match_rate?.toFixed(1) ?? 0}%`}
+                  value={`${Number(summary.match_rate ?? 0).toFixed(1)}%`}
                   sub="실제 거래와 일치한 비율"
-                  positive={summary.match_rate >= 80}
-                  hint={summary.match_rate >= 80 ? '높은 일치율 — 실제 사용 중' : summary.match_rate < 50 ? '낮은 일치율 — 전략 신뢰도 주의' : undefined}
+                  positive={Number(summary.match_rate ?? 0) >= 80}
                 />
                 <KpiCard
                   label="평균 가격 오차"
                   value={summary.avg_price_diff_pct != null ? `${Number(summary.avg_price_diff_pct).toFixed(2)}%` : '-'}
-                  sub="낮을수록 시그널과 유사"
+                  sub="낮을수록 체결 정합성 높음"
                   positive={summary.avg_price_diff_pct != null && summary.avg_price_diff_pct <= THRESHOLDS.TRADE_VERIFIED_MAX_PRICE_DIFF}
-                  hint={summary.avg_price_diff_pct <= 0.2 ? '시그널과 거의 동일한 가격에 체결' : undefined}
                 />
                 <KpiCard
                   label="평균 체결 지연"
                   value={summary.avg_time_diff_sec != null ? `${Number(summary.avg_time_diff_sec).toFixed(0)}초` : '-'}
-                  sub="짧을수록 실행 일관성 높음"
+                  sub="체결까지 걸린 평균 시간"
                   positive={summary.avg_time_diff_sec != null && summary.avg_time_diff_sec <= 180}
-                  hint={summary.avg_time_diff_sec <= 30 ? '즉시 체결 수준' : summary.avg_time_diff_sec > 120 ? '체결 지연이 있음' : undefined}
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-2 mb-4">
+              <div className="grid grid-cols-2 gap-3 mb-4">
                 <KpiCard
                   label="검증 수익률"
                   value={summary.verified_return_pct != null ? `${Number(summary.verified_return_pct) >= 0 ? '+' : ''}${Number(summary.verified_return_pct).toFixed(2)}%` : '-'}
-                  sub="실거래 기준 성과"
+                  sub="인증된 거래 기준 성과"
                   positive={summary.verified_return_pct > 0}
                 />
                 <KpiCard
                   label="매칭 건수"
                   value={`${summary.matched_signal_count ?? 0}건`}
                   sub="표본이 많을수록 신뢰도 상승"
-                  hint={summary.matched_signal_count >= 20 ? '충분한 표본' : '표본이 적어 추가 관찰 권장'}
                 />
               </div>
 
               {/* 종합 판단 문장 */}
-              <div className={`rounded-lg border p-3 mb-4 ${HEADLINE_STYLES[verificationHeadline.tone]}`}>
-                <p className="text-[12px] font-medium text-slate-800 dark:text-slate-200">
+              <div className={cn(headlinePanelClass(verificationHeadline.tone), 'p-4 mb-4')}>
+                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
                   {verificationHeadline.tone === 'positive' && '실제 거래와 높은 일치도를 보입니다.'}
-                  {verificationHeadline.tone === 'neutral' && '추가 확인이 필요한 검증 단계입니다.'}
-                  {verificationHeadline.tone === 'negative' && '실거래 일치도가 낮아 추가 확인이 필요합니다.'}
+                  {verificationHeadline.tone === 'neutral' && '추가 확인이 필요합니다.'}
+                  {verificationHeadline.tone === 'negative' && '실거래 일치도가 낮아 주의가 필요합니다.'}
                 </p>
               </div>
             </>
           )}
 
           {verLevel === 'live_verified' && (
-            <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 text-sm text-blue-700 dark:text-blue-300">
-              <p className="font-medium mb-1">실시간 검증 단계</p>
+            <div className={cn(panelSoft, 'p-4 text-sm text-slate-700 dark:text-slate-300')}>
+              <p className="font-semibold text-slate-900 dark:text-slate-100 mb-1">실시간 검증 단계</p>
               <p className="text-xs leading-relaxed">
-                이 전략은 라이브 시그널이 검증되었으나, 아직 판매자의 실거래 인증이 완료되지 않았습니다.
-                판매자가 거래소 API를 연결하면 실거래 인증이 시작됩니다.
+                라이브 시그널은 검증되었으나 실거래 인증은 아직입니다. API 연결 시 실거래 인증이 시작됩니다.
               </p>
-              <p className="text-[11px] mt-2 text-blue-600 dark:text-blue-400">
-                실거래 인증이 완료되면 전략의 신뢰도가 크게 상승합니다.
+              <p className="text-xs mt-2 text-slate-500 dark:text-slate-400">
+                인증이 완료되면 신뢰도가 높아집니다.
               </p>
             </div>
           )}
 
           {verLevel === 'backtest_only' && (
-            <div className="bg-slate-50 dark:bg-slate-800/50 rounded-lg p-4 text-sm text-slate-600 dark:text-slate-400">
-              <p className="font-medium mb-1">백테스트 단계</p>
+            <div className={cn(panelSoft, 'p-4 text-sm text-slate-600 dark:text-slate-400')}>
+              <p className="font-semibold text-slate-800 dark:text-slate-200 mb-1">백테스트 단계</p>
               <p className="text-xs leading-relaxed">
-                이 전략은 과거 데이터 백테스트만 완료된 상태입니다.
-                등록 후 {THRESHOLDS.LIVE_VERIFIED_MIN_DAYS}일 이상, {THRESHOLDS.LIVE_VERIFIED_MIN_SIGNALS}개 이상의
-                시그널이 누적되면 실시간 검증 단계로 승격됩니다.
-              </p>
-              <p className="text-[11px] mt-2 text-slate-500">
-                검증 단계가 올라갈수록 전략의 신뢰도가 높아집니다.
+                과거 데이터 백테스트만 완료된 상태입니다. 등록 후 {THRESHOLDS.LIVE_VERIFIED_MIN_DAYS}일·시그널 {THRESHOLDS.LIVE_VERIFIED_MIN_SIGNALS}개 이상이면 라이브 검증 단계로 전환됩니다.
               </p>
             </div>
           )}
@@ -485,47 +505,56 @@ export default function StrategyVerificationTabs({
       {/* ── Tab 4: 시그널 vs 체결 비교 ─────────────── */}
       {!loading && activeTab === 'comparison' && (
         <div>
-          {/* 2) comparison KPI 요약 */}
           {comparisonSummary.total > 0 && (
-            <div className="grid grid-cols-3 gap-2 mb-4">
-              <KpiCard
-                label="검증 매칭"
-                value={`${comparisonSummary.verified}/${comparisonSummary.total}`}
-                sub="매칭 건수 요약"
-                positive={comparisonSummary.total > 0 && comparisonSummary.verified / comparisonSummary.total >= 0.7}
-              />
-              <KpiCard
-                label="방향 일치율"
-                value={comparisonSummary.sideMatchRate != null ? `${Number(comparisonSummary.sideMatchRate).toFixed(1)}%` : '-'}
-                sub="실제 거래와 일치한 비율"
-                positive={comparisonSummary.sideMatchRate != null && comparisonSummary.sideMatchRate >= THRESHOLDS.TRADE_VERIFIED_MIN_SIDE_MATCH}
-              />
-              <KpiCard
-                label="평균 가격 오차"
-                value={comparisonSummary.avgPriceDiff != null ? `${comparisonSummary.avgPriceDiff.toFixed(2)}%` : '-'}
-                sub="낮을수록 체결 정합성 높음"
-                positive={comparisonSummary.avgPriceDiff != null && comparisonSummary.avgPriceDiff <= THRESHOLDS.TRADE_VERIFIED_MAX_PRICE_DIFF}
-              />
-            </div>
-          )}
-
-          {comparisonSummary.total > 0 && (
-            <div className="mb-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40 px-3 py-2 text-[11px] text-slate-700 dark:text-slate-300">
-              최근 {comparisonSummary.total}개 시그널 중 {comparisonSummary.sideMatched}개 방향 일치
-            </div>
+            <>
+              <div className={cn(panelSoft, 'p-4 mb-4')}>
+                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  최근 {comparisonSummary.total}개 시그널 중 {comparisonSummary.sideMatched}개가 실제 체결과 방향 일치했습니다
+                </p>
+                <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+                  방향 일치율
+                  {' '}
+                  {comparisonSummary.sideMatchRate != null ? `${Number(comparisonSummary.sideMatchRate).toFixed(1)}%` : '—'}
+                  {' '}
+                  / 평균 가격 오차
+                  {' '}
+                  {comparisonSummary.avgPriceDiff != null ? `${comparisonSummary.avgPriceDiff.toFixed(2)}%` : '—'}
+                </p>
+              </div>
+              <div className="grid grid-cols-3 gap-3 mb-4">
+                <KpiCard
+                  label="검증 매칭"
+                  value={`${comparisonSummary.verified}/${comparisonSummary.total}`}
+                  sub="인증된 매칭 비중"
+                  positive={comparisonSummary.total > 0 && comparisonSummary.verified / comparisonSummary.total >= 0.7}
+                />
+                <KpiCard
+                  label="방향 일치율"
+                  value={comparisonSummary.sideMatchRate != null ? `${Number(comparisonSummary.sideMatchRate).toFixed(1)}%` : '-'}
+                  sub="실제 거래와 일치한 비율"
+                  positive={comparisonSummary.sideMatchRate != null && comparisonSummary.sideMatchRate >= THRESHOLDS.TRADE_VERIFIED_MIN_SIDE_MATCH}
+                />
+                <KpiCard
+                  label="평균 가격 오차"
+                  value={comparisonSummary.avgPriceDiff != null ? `${comparisonSummary.avgPriceDiff.toFixed(2)}%` : '-'}
+                  sub="낮을수록 체결 정합성 높음"
+                  positive={comparisonSummary.avgPriceDiff != null && comparisonSummary.avgPriceDiff <= THRESHOLDS.TRADE_VERIFIED_MAX_PRICE_DIFF}
+                />
+              </div>
+            </>
           )}
 
           <div className="flex items-center justify-between mb-3">
             <span className="text-xs text-slate-500 dark:text-slate-400">
-              시그널과 실제 거래 비교 ({matches.length}건)
+              시그널과 실제 거래 비교 ({matchesList.length}건)
             </span>
-            {matches.length > 0 && (
+            {matchesList.length > 0 && (
               <span className="text-xs text-emerald-600 dark:text-emerald-400">
                 매칭: {comparisonSummary.verified}건
               </span>
             )}
           </div>
-          <TradeComparisonTable matches={matches} />
+          <TradeComparisonTable matches={matchesList} />
         </div>
       )}
     </div>

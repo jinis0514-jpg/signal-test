@@ -1,15 +1,16 @@
 import { useMemo } from 'react'
 
-export default function LivePerformanceChart({ dailyData = [], className = '' }) {
+export default function LivePerformanceChart({ dailyData, className = '' }) {
+  const rows = Array.isArray(dailyData) ? dailyData : []
   const chartData = useMemo(() => {
-    if (!dailyData.length) return null
-    const maxRoi = Math.max(...dailyData.map((d) => d.cumulative_roi), 0.01)
-    const minRoi = Math.min(...dailyData.map((d) => d.cumulative_roi), 0)
+    if (!rows.length) return null
+    const maxRoi = Math.max(...rows.map((d) => Number(d?.cumulative_roi)), 0.01)
+    const minRoi = Math.min(...rows.map((d) => Number(d?.cumulative_roi)), 0)
     const range = maxRoi - minRoi || 1
     return { maxRoi, minRoi, range }
-  }, [dailyData])
+  }, [rows])
 
-  if (!dailyData.length || !chartData) {
+  if (!rows.length || !chartData) {
     return (
       <div className={`flex items-center justify-center h-48 text-slate-400 dark:text-slate-500 text-sm ${className}`}>
         라이브 성과 데이터가 없습니다
@@ -20,30 +21,30 @@ export default function LivePerformanceChart({ dailyData = [], className = '' })
   const { minRoi, range } = chartData
   const W = 100
   const H = 40
-  const step = dailyData.length > 1 ? W / (dailyData.length - 1) : W
+  const step = rows.length > 1 ? W / (rows.length - 1) : W
   const zeroY = ((0 - minRoi) / range) * H
 
-  const points = dailyData.map((d, i) => {
+  const points = rows.map((d, i) => {
     const x = i * step
-    const y = H - ((d.cumulative_roi - minRoi) / range) * H
+    const y = H - ((Number(d?.cumulative_roi) - minRoi) / range) * H
     return `${x.toFixed(2)},${y.toFixed(2)}`
   })
 
   const areaPoints = [
     `0,${H}`,
     ...points,
-    `${((dailyData.length - 1) * step).toFixed(2)},${H}`,
+    `${((rows.length - 1) * step).toFixed(2)},${H}`,
   ]
 
-  const lastRoi = dailyData[dailyData.length - 1].cumulative_roi
-  const isPositive = lastRoi >= 0
+  const lastRoi = Number(rows[rows.length - 1]?.cumulative_roi)
+  const isPositive = Number.isFinite(lastRoi) && lastRoi >= 0
 
   return (
     <div className={className}>
       <div className="flex items-baseline justify-between mb-2">
         <span className="text-xs text-slate-500 dark:text-slate-400">누적 ROI</span>
         <span className={`text-lg font-bold ${isPositive ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500'}`}>
-          {isPositive ? '+' : ''}{lastRoi.toFixed(2)}%
+          {Number.isFinite(lastRoi) ? `${isPositive ? '+' : ''}${lastRoi.toFixed(2)}%` : '—'}
         </span>
       </div>
 
@@ -73,8 +74,8 @@ export default function LivePerformanceChart({ dailyData = [], className = '' })
       </svg>
 
       <div className="flex justify-between text-[10px] text-slate-400 dark:text-slate-500 mt-1">
-        <span>{dailyData[0]?.as_of}</span>
-        <span>{dailyData[dailyData.length - 1]?.as_of}</span>
+        <span>{rows[0]?.as_of}</span>
+        <span>{rows[rows.length - 1]?.as_of}</span>
       </div>
     </div>
   )

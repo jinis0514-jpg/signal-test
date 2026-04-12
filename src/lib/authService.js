@@ -88,6 +88,21 @@ export async function signInWithPassword(email, password) {
   return data
 }
 
+/** Google OAuth 로그인 */
+export async function signInWithGoogle(nextPath = '/app/home') {
+  if (!isSupabaseConfigured() || !supabase) {
+    throw new Error('Supabase 환경변수가 설정되지 않았습니다.')
+  }
+  const safeNext = typeof nextPath === 'string' && nextPath.startsWith('/app/') ? nextPath : '/app/home'
+  const redirectTo = `${window.location.origin}${safeNext}`
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo },
+  })
+  if (error) throw new Error(mapAuthErrorToMessage(error))
+  return data
+}
+
 /** 비밀번호 재설정 메일 (매직링크 최소화용 — 사용자가 메일에서 새 비밀번호 설정) */
 export async function resetPasswordForEmail(email) {
   if (!isSupabaseConfigured() || !supabase) {

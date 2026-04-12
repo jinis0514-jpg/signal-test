@@ -9,7 +9,7 @@ export default function PageShell({ children, wide = false, className = '' }) {
   return (
     <div className={cn(
       'mx-auto w-full px-5 py-5 sm:px-6 sm:py-6',
-      wide ? 'max-w-[1400px]' : 'max-w-[1280px]',
+      wide ? 'max-w-[1400px]' : 'max-w-7xl',
       className,
     )}>
       {children}

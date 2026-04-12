@@ -19,9 +19,10 @@ function fmtDiff(sec) {
 }
 
 export default function TradeComparisonTable({ matches = [], className = '' }) {
+  const list = Array.isArray(matches) ? matches : []
   const sorted = useMemo(
-    () => [...matches].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)),
-    [matches],
+    () => [...list].sort((a, b) => new Date(b.created_at) - new Date(a.created_at)),
+    [list],
   )
 
   if (!sorted.length) {
@@ -48,11 +49,11 @@ export default function TradeComparisonTable({ matches = [], className = '' }) {
           </tr>
         </thead>
         <tbody>
-          {sorted.map((m) => {
+          {sorted.map((m, idx) => {
             const matched = m.is_verified_match
             return (
               <tr
-                key={m.id}
+                key={m.id != null ? String(m.id) : `m-${idx}`}
                 className={`
                   border-b border-slate-100 dark:border-slate-800
                   ${matched
@@ -83,7 +84,9 @@ export default function TradeComparisonTable({ matches = [], className = '' }) {
                     ? 'text-amber-600 dark:text-amber-400'
                     : ''
                 }`}>
-                  {m.price_diff_pct != null ? `${m.price_diff_pct.toFixed(2)}%` : '-'}
+                  {m.price_diff_pct != null && Number.isFinite(Number(m.price_diff_pct))
+                    ? `${Number(m.price_diff_pct).toFixed(2)}%`
+                    : '-'}
                 </td>
                 <td className="py-2 px-2 text-center">
                   {matched ? (

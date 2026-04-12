@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback, memo } from 'react'
-import { Activity, RotateCcw, ExternalLink, BarChart2, Lock, Star } from 'lucide-react'
+import { Activity, RotateCcw, ExternalLink, BarChart2, Lock } from 'lucide-react'
 import PageShell    from '../components/ui/PageShell'
 import PageHeader   from '../components/ui/PageHeader'
 import Card         from '../components/ui/Card'
@@ -10,9 +10,10 @@ import SectionErrorBoundary from '../components/ui/SectionErrorBoundary'
 import MockChart         from '../components/simulation/MockChart'
 import CandlestickChart from '../components/simulation/CandlestickChart'
 import StrategyMarkerLegend from '../components/charts/StrategyMarkerLegend'
-import SignalReasonPanel from '../components/charts/SignalReasonPanel'
+import SignalList from '../components/simulation/SignalList'
 import { ChartSkeleton } from '../components/ui/Skeleton'
 import { cn }       from '../lib/cn'
+import { panelBase, panelSoft, panelDanger, panelWarning } from '../lib/panelStyles'
 
 const LS_SIGNAL_CHART_BY_STRATEGY = 'bb_signal_chart_by_strategy_v1'
 import {
@@ -28,6 +29,7 @@ import {
   getEffectiveProductTier,
   PLAN_TIER,
 } from '../lib/userPlan'
+import { FREE_VS_PAID } from '../lib/conversionUx'
 import { seededRng, strToSeed } from '../lib/seedRandom'
 import { isUserStrategyId, getUserStrategyById, ASSET_TO_SIM_ID } from '../lib/userStrategies'
 import {
@@ -49,6 +51,7 @@ import {
 } from '../hooks/useBrowserSignalNotifications'
 import { useInAppNotificationsOptional } from '../context/InAppNotificationContext'
 import StrategyNotifyToggles from '../components/signal/StrategyNotifyToggles'
+import ChartSymbolCombobox from '../components/signal/ChartSymbolCombobox'
 import { shouldNotifySignal } from '../lib/signalNotifyEligibility'
 import { isSignalNotifyKeyRecorded } from '../lib/signalNotificationDedupe'
 import { normalizeBinanceSymbol } from '../lib/marketCandles'
@@ -73,6 +76,19 @@ import { formatUsd, formatUsdKrwCombined } from '../lib/priceFormat'
 import { buildRetentionRiskAlerts } from '../lib/retentionAlerts'
 import { getStrategyChartColor } from '../lib/strategyChartPalette'
 import { dedupeSignalsForStrategy, normalizeSignalTimeKey } from '../lib/signalDedupe'
+import { appendViewedSignal } from '../lib/viewedSignals'
+import { getBinanceSpotTradeUrl } from '../lib/binanceTradeLinks'
+import { buildSignalTrustMetrics } from '../lib/signalTrustMetrics'
+import SignalTrustStrip from '../components/signal/SignalTrustStrip'
+import {
+  computeSignalTrustScore,
+  getSignalTrustGrade,
+  getSignalTrustInsight,
+  getSignalTrustEvidenceTags,
+} from '../lib/signalTrustScore'
+import { classifyMarketState, recommendStrategiesByMarket } from '../lib/marketStateEngine'
+import { getSignalTrustEventAdjustment, getEventImpactOnStrategy } from '../lib/marketEventEngine'
+import { MANUAL_MARKET_EVENTS, pickHighlightMarketEvent } from '../data/marketEvents'
 
 /** 플랜별 동시 관찰 가능 전략 수 (무료 1~2 · 상위 5~10) */
 function getWatchLimit(user) {
@@ -138,6 +154,9 @@ const FALLBACK_STRATEGY = {
   timeframe: '1H',
   status: 'not_started',
   runningStatus: 'stopped',
+  matchRate: 65,
+  winRate: 55,
+  totalTrades: 0,
 }
 
 function fmtHoldDuration(entryMs) {
@@ -336,106 +355,6 @@ const SignalRow = memo(function SignalRow({
   && a.recent7d === b.recent7d
   && a.color === b.color
   && a.rationale === b.rationale)
-
-/** 우측 상단 — 활성 시그널 상태판 (멀티 전략 한눈에) */
-const ActiveSignalStatusBoard = memo(function ActiveSignalStatusBoard({ rows, selectedId, onSelect }) {
-  if (!rows?.length) {
-    return (
-      <div className="rounded-[8px] border border-slate-200 bg-slate-50/60 px-4 py-6 text-center text-[13px] text-slate-500 dark:border-gray-700 dark:bg-gray-900/30 dark:text-slate-400">
-        표시할 전략이 없습니다
-      </div>
-    )
-  }
-  return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-3 gap-3">
-      {rows.map((s) => {
-        const isSel = s.id === selectedId
-        const color = s.color ?? '#64748b'
-        const posType = s.openPosType
-        return (
-          <button
-            key={s.id}
-            type="button"
-            onClick={() => onSelect(s.id)}
-            className={cn(
-              'text-left rounded-[8px] border bg-white px-3 py-3 transition-colors shadow-none dark:bg-gray-900/40',
-              isSel
-                ? 'border-blue-500 ring-1 ring-blue-500/25'
-                : 'border-slate-200 hover:border-slate-300 dark:border-gray-700 dark:hover:border-gray-600',
-            )}
-          >
-            <div className="flex items-center gap-2 mb-2 min-w-0">
-              <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden />
-              <span className="text-[13px] font-semibold text-slate-900 dark:text-slate-100 truncate leading-tight">
-                {s.name}
-              </span>
-            </div>
-            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 mb-2">
-              <Badge variant={dirVariant(posType)} className="text-[10px]">
-                {posType ? posLabelKo(posType) : '대기'}
-              </Badge>
-              {s.openPnlPct != null && posType && (
-                <span
-                  className={cn(
-                    'text-[18px] font-bold tabular-nums tracking-tight',
-                    s.openPnlPct >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400',
-                  )}
-                >
-                  {s.openPnlPct >= 0 ? '+' : ''}
-                  {Number(s.openPnlPct).toFixed(1)}%
-                </span>
-              )}
-              {!posType && s.recentPnl != null && (
-                <span className={cn('text-[12px] font-semibold tabular-nums', pnlClass(s.recentPnl))}>
-                  직전 청산 {s.recentPnl >= 0 ? '+' : ''}
-                  {s.recentPnl}%
-                </span>
-              )}
-            </div>
-            {s.statusSummary && (
-              <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-snug mb-2 line-clamp-2">{s.statusSummary}</p>
-            )}
-            {s.entryTime != null && posType && (
-              <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-snug tabular-nums">
-                진입 {fmtEntryTime(s.entryTime)} · 보유 {fmtHoldDuration(s.entryTime)}
-              </p>
-            )}
-            {s.recent7d != null && Number.isFinite(s.recent7d) && (
-              <p
-                className={cn(
-                  'text-[10px] font-medium tabular-nums mt-1',
-                  s.recent7d >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500',
-                )}
-              >
-                최근 7일 누적 {s.recent7d >= 0 ? '+' : ''}
-                {s.recent7d.toFixed(1)}%
-              </p>
-            )}
-            {s.isLocked && (
-              <p className="text-[10px] text-slate-400 flex items-center gap-0.5 mt-1">
-                <Lock size={9} /> 잠금
-              </p>
-            )}
-          </button>
-        )
-      })}
-    </div>
-  )
-}, (a, b) => {
-  if (a.selectedId !== b.selectedId) return false
-  if (a.rows === b.rows) return true
-  const ra = a.rows
-  const rb = b.rows
-  if (!ra || !rb || ra.length !== rb.length) return false
-  for (let i = 0; i < ra.length; i++) {
-    const x = ra[i]
-    const y = rb[i]
-    if (x.id !== y.id || x.openPnlPct !== y.openPnlPct || x.openPosType !== y.openPosType
-      || x.recent7d !== y.recent7d || x.recentPnl !== y.recentPnl || x.entryTime !== y.entryTime
-      || x.statusSummary !== y.statusSummary) return false
-  }
-  return true
-})
 
 /** 진입 근거 패널 */
 function EntryRationalePanel({ notes, strength, openPos, slTpDisplay, pnlPrice, locked }) {
@@ -643,17 +562,10 @@ export default function SignalPage({
     return () => { cancelled = true }
   }, [])
 
-  const chartSymbolSuggestions = useMemo(() => {
-    if (!Array.isArray(binancePairMeta) || binancePairMeta.length === 0) return []
-    const q = String(chartSymbolDraft ?? '').trim().toUpperCase()
-    const out = !q
-      ? binancePairMeta.slice(0, 28)
-      : binancePairMeta.filter(
-        (p) => typeof p.symbol === 'string'
-          && (p.symbol.includes(q) || String(p.baseAsset || '').includes(q)),
-      ).slice(0, 28)
-    return out
-  }, [binancePairMeta, chartSymbolDraft])
+  const chartSymbolOptions = useMemo(
+    () => (Array.isArray(binancePairMeta) ? binancePairMeta : []),
+    [binancePairMeta],
+  )
 
   useEffect(() => {
     try {
@@ -701,6 +613,7 @@ export default function SignalPage({
   const klinesInterval = chartTf
   const chart = CHART_DATA[mockStrategyId]
   const binancePair = useMemo(() => normalizeBinanceSymbol(klinesSymbol), [klinesSymbol])
+  const binanceTradeUrl = useMemo(() => getBinanceSpotTradeUrl(binancePair), [binancePair])
   const {
     candles: chartCandles,
     loading: chartLoading,
@@ -822,6 +735,18 @@ export default function SignalPage({
     usdPrice: null, krwPrice: null, krwSource: null, changePercent: null,
   })
   const [fastUpdatedAt, setFastUpdatedAt] = useState(0)
+  const [kstTick, setKstTick] = useState(0)
+  useEffect(() => {
+    const id = window.setInterval(() => setKstTick((t) => t + 1), 1000)
+    return () => window.clearInterval(id)
+  }, [])
+  const kstWallClock = useMemo(() => {
+    try {
+      return new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Seoul', hour12: false }).replace('T', ' ')
+    } catch {
+      return '—'
+    }
+  }, [kstTick])
 
   const displayPrice = marketPrice ?? currentPrice ?? liveData.basePrice
   const pnlPrice = marketPriceMeta.usdPrice ?? currentPrice ?? liveData.basePrice
@@ -892,14 +817,137 @@ export default function SignalPage({
 
   const closedPerf = (engineResult && typeof engineResult.performance === 'object' && engineResult.performance) ? engineResult.performance : {}
 
+  const btMetaForTrust = useMemo(() => {
+    if (!effectiveCandles.length) return {}
+    return { endTime: effectiveCandles[effectiveCandles.length - 1].time }
+  }, [effectiveCandles])
+
+  const signalTrustMetrics = useMemo(
+    () => buildSignalTrustMetrics({
+      strategy,
+      userStrat,
+      trades,
+      backtestMeta: btMetaForTrust,
+      closedPerformance: closedPerf,
+    }),
+    [strategy, userStrat, trades, btMetaForTrust, closedPerf],
+  )
+
+  const marketStateForSignalTrust = useMemo(() => {
+    const ch = Number(marketPriceMeta.changePercent ?? liveData.priceChangePct)
+    const abs = Math.abs(Number.isFinite(ch) ? ch : 0)
+    return classifyMarketState({
+      btcChange24h: Number.isFinite(ch) ? ch : 0,
+      ethChange24h: Number.isFinite(ch) ? ch : 0,
+      avgRangePct: abs,
+      dominanceTrend: '',
+      volumeTrend: '',
+    })
+  }, [marketPriceMeta.changePercent, liveData.priceChangePct])
+
+  const strategyMarketFitScore = useMemo(() => {
+    const base = { ...(strategy ?? {}), ...(userStrat ?? {}) }
+    const row = recommendStrategiesByMarket([base], marketStateForSignalTrust)[0]
+    return Number(row?.marketFitScore ?? 50)
+  }, [strategy, userStrat, marketStateForSignalTrust])
+
+  const currentSignalAgeMinutes = useMemo(() => {
+    if (!currentSignal) return 0
+    const t = Number(currentSignal.time ?? currentSignal.ts)
+    if (!Number.isFinite(t)) return 0
+    return Math.max(0, (Date.now() - t) / 60000)
+  }, [currentSignal])
+
+  const signalEventTrustAdjustment = useMemo(
+    () => getSignalTrustEventAdjustment(MANUAL_MARKET_EVENTS, marketStateForSignalTrust),
+    [marketStateForSignalTrust],
+  )
+
+  const signalPageHighlightEvent = useMemo(
+    () => pickHighlightMarketEvent(MANUAL_MARKET_EVENTS),
+    [],
+  )
+
+  const signalPageEventOnStrategy = useMemo(() => {
+    if (!signalPageHighlightEvent || !strategy) return null
+    return getEventImpactOnStrategy(
+      signalPageHighlightEvent,
+      { typeLabel: String(strategy.typeLabel ?? '추세형') },
+      marketStateForSignalTrust,
+    )
+  }, [signalPageHighlightEvent, strategy, marketStateForSignalTrust])
+
+  const signalTrustScore = useMemo(
+    () => computeSignalTrustScore({
+      strategyTrustScore: signalTrustMetrics.trustPct,
+      matchRate: Number(
+        strategy?.matchRate ?? strategy?.match_rate ?? signalTrustMetrics.matchPct ?? 0,
+      ),
+      recentWinRate: Number(
+        signalTrustMetrics.recentSuccessPct ?? closedPerf.winRate ?? strategy?.winRate ?? 0,
+      ),
+      marketFitScore: strategyMarketFitScore,
+      reasonCount: currentSignalReasons.length,
+      volatilityLabel: marketStateForSignalTrust.volatilityLabel,
+      signalAgeMinutes: currentSignalAgeMinutes,
+      hasRealVerification: !!(strategy?.hasRealVerification ?? strategy?.is_trade_verified),
+      eventTrustAdjustment: signalEventTrustAdjustment,
+    }),
+    [
+      signalTrustMetrics.trustPct,
+      signalTrustMetrics.matchPct,
+      signalTrustMetrics.recentSuccessPct,
+      strategy,
+      closedPerf.winRate,
+      strategyMarketFitScore,
+      currentSignalReasons.length,
+      marketStateForSignalTrust.volatilityLabel,
+      currentSignalAgeMinutes,
+      signalEventTrustAdjustment,
+    ],
+  )
+
+  const signalTrustGrade = useMemo(
+    () => getSignalTrustGrade(signalTrustScore),
+    [signalTrustScore],
+  )
+
+  const signalTrustInsight = useMemo(
+    () => getSignalTrustInsight(signalTrustScore),
+    [signalTrustScore],
+  )
+
+  const signalTrustEvidenceTags = useMemo(
+    () => getSignalTrustEvidenceTags({
+      matchRate: Number(strategy?.matchRate ?? strategy?.match_rate ?? signalTrustMetrics.matchPct ?? 0),
+      recentWinRate: Number(
+        signalTrustMetrics.recentSuccessPct ?? closedPerf.winRate ?? strategy?.winRate ?? 0,
+      ),
+      marketFitScore: strategyMarketFitScore,
+      reasonCount: currentSignalReasons.length,
+      hasRealVerification: !!(strategy?.hasRealVerification ?? strategy?.is_trade_verified),
+    }),
+    [
+      strategy,
+      signalTrustMetrics,
+      closedPerf.winRate,
+      strategyMarketFitScore,
+      currentSignalReasons.length,
+    ],
+  )
+
+  const signalTrustPanelClass =
+    signalTrustGrade.tone === 'positive'
+      ? 'rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4 shadow-sm dark:border-emerald-900/40 dark:bg-emerald-950/20'
+      : signalTrustGrade.tone === 'warning'
+        ? 'rounded-2xl border border-amber-200 bg-amber-50/70 p-4 shadow-sm dark:border-amber-900/40 dark:bg-amber-950/20'
+        : signalTrustGrade.tone === 'danger'
+          ? 'rounded-2xl border border-rose-200 bg-rose-50/70 p-4 shadow-sm dark:border-rose-900/40 dark:bg-rose-950/20'
+          : 'rounded-2xl border border-slate-200/80 bg-slate-50/80 p-4 shadow-sm dark:border-gray-700 dark:bg-gray-900/70'
+
   const riskAlerts = useMemo(
     () => buildRetentionRiskAlerts({ mdd: closedPerf.mdd, totalTrades: trades.length, recentTrades: trades }),
     [closedPerf.mdd, trades],
-  )
-
-  const chartTfLabel = useMemo(
-    () => CHART_TF_OPTIONS.find((o) => o.value === chartTf)?.label ?? chartTf,
-    [chartTf],
   )
 
   const effectiveStatus = userStatus[mockStrategyId] ?? strategy?.status ?? 'not_started'
@@ -1148,7 +1196,7 @@ export default function SignalPage({
   )
 
   const priceLineOverlays = useMemo(() => {
-    const op = multiEngineSnapshots[strategyId]?.openPos
+    const op = openPos
     if (!op?.entryPrice) return EMPTY_ARRAY
     const lines = [{
       price: op.entryPrice,
@@ -1172,8 +1220,14 @@ export default function SignalPage({
         lineWidth: 1,
       })
     }
-    return lines
-  }, [multiEngineSnapshots, strategyId, slTpDisplay])
+    const seen = new Set()
+    return lines.filter((ln) => {
+      const k = `${Number(ln.price).toFixed(8)}|${String(ln.title ?? '')}`
+      if (seen.has(k)) return false
+      seen.add(k)
+      return true
+    })
+  }, [openPos, slTpDisplay])
 
   /* ── 진입 근거 파싱 ──────────────────────── */
   const entryRationale = useMemo(() => {
@@ -1189,7 +1243,7 @@ export default function SignalPage({
     [currentSignalConfidence, entryRationale, strategyConfig],
   )
 
-  /* ── 관찰 전략 행 — 상태·근거·목표/손절 거리 (멀티 모니터 단일 소스) ──────────────── */
+  /* ── 사이드바 전략 행 요약 (포지션·7일 성과 등) ──────────────── */
   const monitorRows = useMemo(() => {
     const lastPrice = pnlPrice ?? enginePrices[enginePrices.length - 1]?.price ?? 0
     const userStratMap = new Map((Array.isArray(userStrategies) ? userStrategies : []).map((x) => [x.id, x]))
@@ -1296,50 +1350,6 @@ export default function SignalPage({
     strategyId, visibleSignals,
   ])
 
-  const signalReasonPanelItems = useMemo(() => {
-    const op = multiEngineSnapshots[strategyId]?.openPos ?? null
-
-    const positionLabel =
-      op?.type === 'LONG' ? 'LONG 보유 중'
-      : op?.type === 'SHORT' ? 'SHORT 보유 중'
-      : currentSignal?.direction === 'LONG' ? 'LONG 대기'
-      : currentSignal?.direction === 'SHORT' ? 'SHORT 대기'
-      : null
-
-    const currentPnl =
-      op && Number.isFinite(Number(op.pnlPct))
-        ? `${Number(op.pnlPct) >= 0 ? '+' : ''}${Number(op.pnlPct).toFixed(2)}%`
-        : null
-
-    const slTp = slTpDisplay
-    const curr = pnlPrice
-    const distTp = slTp.tp != null && curr > 0
-      ? +((slTp.tp - curr) / curr * 100).toFixed(2) : null
-    const distSl = slTp.sl != null && curr > 0
-      ? +((slTp.sl - curr) / curr * 100).toFixed(2) : null
-
-    const tpDistance =
-      Number.isFinite(distTp) ? `${distTp >= 0 ? '+' : ''}${distTp.toFixed(2)}%` : null
-    const slDistance =
-      Number.isFinite(distSl) ? `${distSl >= 0 ? '+' : ''}${distSl.toFixed(2)}%` : null
-
-    return [{
-      strategyKey: strategyId,
-      strategyLabel: displayName,
-      color: selectedColor,
-      reasons: currentSignalReasons,
-      positionLabel,
-      currentPnl,
-      tpDistance,
-      slDistance,
-      confidenceScore: currentSignalConfidence,
-    }]
-  }, [
-    multiEngineSnapshots, strategyId, displayName, selectedColor,
-    currentSignal, currentSignalReasons, currentSignalConfidence,
-    slTpDisplay, pnlPrice,
-  ])
-
   const currentStatusBox = useMemo(() => {
     const pos = openPos?.type === 'LONG' ? 'LONG' : openPos?.type === 'SHORT' ? 'SHORT' : '대기'
     const state = openPos?.type ? '진입 중' : (latestClosedSignal ? '종료됨' : '대기 중')
@@ -1355,6 +1365,60 @@ export default function SignalPage({
       : '직전 포지션이 종료되었습니다'
     return { pos, state, pnl, actionText, headline }
   }, [openPos?.type, openPnlPct, latestClosedSignal])
+
+  const distanceBox = useMemo(() => {
+    const curr = Number(pnlPrice)
+    const tpPct = Number.isFinite(Number(slTpDisplay?.tp)) && curr > 0
+      ? ((Number(slTpDisplay.tp) - curr) / curr) * 100
+      : null
+    const slPct = Number.isFinite(Number(slTpDisplay?.sl)) && curr > 0
+      ? ((Number(slTpDisplay.sl) - curr) / curr) * 100
+      : null
+    return {
+      tpPct: Number.isFinite(tpPct) ? tpPct : null,
+      slPct: Number.isFinite(slPct) ? slPct : null,
+    }
+  }, [pnlPrice, slTpDisplay])
+
+  const topReasonLines = useMemo(() => {
+    if (!Array.isArray(entryRationale) || entryRationale.length === 0) {
+      return ['근거 데이터가 아직 충분하지 않습니다']
+    }
+    return entryRationale
+      .map((r) => String(r?.label ?? '').trim())
+      .filter(Boolean)
+      .map((line) => (line.includes('→') ? String(line).split('→')[0].trim() : line))
+      .slice(0, 5)
+  }, [entryRationale])
+
+  const recentSignalRows = useMemo(
+    () => [...safeArray(visibleSignals)]
+      .sort((a, b) => Number(b?.time ?? 0) - Number(a?.time ?? 0))
+      .slice(0, 8)
+      .map((s, i) => ({
+        id: s.signalId ?? `${s.type}-${s.time}-${i}`,
+        type: s.type === 'ENTRY' ? String(s.direction ?? 'LONG').toUpperCase() : String(s.type ?? 'WAIT').toUpperCase(),
+        price: Number(s.price),
+        time: fmtEntryTime(s.time),
+        rawTime: Number(s.time),
+        note: s.note ?? '',
+        open: Boolean(s.open),
+      })),
+    [visibleSignals],
+  )
+
+  const onSignalListRowClick = useCallback((s) => {
+    if (!s || s.type === 'WAIT') return
+    const rt = Number(s.rawTime)
+    appendViewedSignal({
+      strategyId,
+      strategyName: displayName,
+      symbol: binancePair,
+      type: s.type,
+      signalTs: Number.isFinite(rt) ? rt : Date.now(),
+      signalKey: `${strategyId}-${s.id}`,
+    })
+  }, [strategyId, displayName, binancePair])
 
   const chartCaption = useMemo(() => {
     const posLine = `현재 ${currentStatusBox.pos} 포지션 ${currentStatusBox.state}`
@@ -1379,6 +1443,27 @@ export default function SignalPage({
   return (
     <PageShell wide className="min-w-0">
       <PageHeader title="시그널" />
+      {locked && (
+        <div className="mb-3 rounded-xl border border-amber-200/90 bg-amber-50/90 px-3 py-2.5 dark:border-amber-900/45 dark:bg-amber-950/25">
+          <p className="text-[12px] font-semibold text-amber-900 dark:text-amber-100">
+            {FREE_VS_PAID.lockedBanner}
+          </p>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2 text-[11px] leading-snug text-slate-700 dark:text-slate-300">
+            <div className="rounded-lg border border-slate-200/80 bg-white/80 px-2.5 py-2 dark:border-gray-700 dark:bg-gray-900/50">
+              <p className="font-semibold text-slate-800 dark:text-slate-100">{FREE_VS_PAID.freeTitle}</p>
+              <ul className="mt-1 list-disc list-inside text-slate-600 dark:text-slate-400">
+                {FREE_VS_PAID.freeItems.map((t) => <li key={t}>{t}</li>)}
+              </ul>
+            </div>
+            <div className="rounded-lg border border-sky-200/80 bg-sky-50/80 px-2.5 py-2 dark:border-sky-900/40 dark:bg-sky-950/20">
+              <p className="font-semibold text-sky-900 dark:text-sky-100">{FREE_VS_PAID.paidTitle}</p>
+              <ul className="mt-1 list-disc list-inside text-slate-700 dark:text-slate-300">
+                {FREE_VS_PAID.paidItems.map((t) => <li key={t}>{t}</li>)}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
       {chartError && chartDataSource === 'fallback' && (
         <p className="mb-3 text-[12px] text-amber-800 dark:text-amber-200/90 rounded-lg border border-amber-200/80 dark:border-amber-900/50 bg-amber-50/90 dark:bg-amber-950/25 px-3 py-2">
           Binance 캔들을 불러오지 못해 참고용 데이터로 시뮬레이션합니다. 네트워크를 확인해 주세요.
@@ -1442,13 +1527,74 @@ export default function SignalPage({
 
           <section className="signal-top-status" aria-labelledby="signal-active-heading">
             <h2 id="signal-active-heading" className="text-[16px] font-semibold text-slate-900 dark:text-slate-100 mb-3">
-              포지션
+              현재 상태 · 판단 · 진입 근거
             </h2>
-            <ActiveSignalStatusBoard
-              rows={monitorRows}
-              selectedId={strategyId}
-              onSelect={setStrategyId}
-            />
+            <div className={cn(panelBase, 'p-4 space-y-4')}>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <p className="text-[11px] text-slate-400">현재 상태</p>
+                  <p className="mt-1 text-base font-bold text-slate-900 dark:text-slate-100">
+                    {currentStatusBox.headline}
+                  </p>
+                  <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                    미실현 손익{' '}
+                    <span className={cn(
+                      'tabular-nums font-semibold',
+                      currentStatusBox.pnl == null && 'text-slate-500 dark:text-slate-400',
+                      currentStatusBox.pnl != null && currentStatusBox.pnl >= 0 && 'text-emerald-600 dark:text-emerald-400',
+                      currentStatusBox.pnl != null && currentStatusBox.pnl < 0 && 'text-red-500 dark:text-red-400',
+                    )}>
+                      {currentStatusBox.pnl == null ? '—' : `${currentStatusBox.pnl >= 0 ? '+' : ''}${currentStatusBox.pnl.toFixed(2)}%`}
+                    </span>
+                  </p>
+                </div>
+                <div className="text-right text-[11px] text-slate-500 dark:text-slate-400">
+                  <p>익절까지 {distanceBox.tpPct == null ? '—' : `${distanceBox.tpPct >= 0 ? '+' : ''}${distanceBox.tpPct.toFixed(2)}%`}</p>
+                  <p>손절까지 {distanceBox.slPct == null ? '—' : `${distanceBox.slPct >= 0 ? '+' : ''}${distanceBox.slPct.toFixed(2)}%`}</p>
+                </div>
+              </div>
+              <div>
+                <p className="text-[11px] text-slate-400">현재 판단</p>
+                <p className="mt-1 text-sm text-slate-800 dark:text-slate-100 leading-snug">
+                  {signalTrustInsight || currentStatusBox.actionText}
+                </p>
+              </div>
+              <div>
+                <p className="text-[11px] text-slate-400">진입 근거</p>
+                <ul className="mt-2 space-y-1.5 text-sm text-slate-700 dark:text-slate-300 list-disc list-inside">
+                  {topReasonLines.map((line, i) => (
+                    <li key={`${line}-${i}`}>{line}</li>
+                  ))}
+                </ul>
+              </div>
+              <EntryRationalePanel
+                notes={entryRationale}
+                strength={signalStrength}
+                openPos={openPos}
+                slTpDisplay={slTpDisplay}
+                pnlPrice={pnlPrice}
+                locked={locked}
+              />
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-100 dark:border-gray-800">
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  선택 전략: {displayName}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {typeof onGoValidation === 'function' && (
+                    <Button variant="secondary" size="sm" type="button" onClick={() => onGoValidation(strategyId)}>
+                      <BarChart2 size={12} className="mr-1 opacity-80" />
+                      검증 보기
+                    </Button>
+                  )}
+                  {onNavigate && (
+                    <Button variant="secondary" size="sm" type="button" onClick={() => onNavigate('market')}>
+                      <ExternalLink size={12} className="mr-1 opacity-80" />
+                      전략 상세
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
           </section>
 
           {/* 잠금 배너 */}
@@ -1485,10 +1631,8 @@ export default function SignalPage({
             <div className="flex flex-wrap gap-2">
               {riskAlerts.map((a) => (
                 <div key={a.key} className={cn(
-                  'rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold',
-                  a.level === 'danger'
-                    ? 'border-red-200 bg-red-50/90 text-red-800 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200'
-                    : 'border-amber-200 bg-amber-50/90 text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/25 dark:text-amber-100',
+                  a.level === 'danger' ? panelDanger : panelWarning,
+                  'px-2.5 py-1.5 text-[11px] font-semibold',
                 )}>
                   {a.text}
                 </div>
@@ -1497,37 +1641,12 @@ export default function SignalPage({
           )}
 
           <section className="signal-chart-section" aria-label="캔들 차트">
-          <div className="mb-4 rounded-lg border border-slate-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-900">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-slate-500">현재 상태</p>
-                <p className={cn(
-                  'text-lg font-bold',
-                  currentStatusBox.pos === 'LONG' && 'text-emerald-600 dark:text-emerald-400',
-                  currentStatusBox.pos === 'SHORT' && 'text-red-500',
-                  currentStatusBox.pos === '대기' && 'text-slate-700 dark:text-slate-200',
-                )}>
-                  {currentStatusBox.headline}
-                </p>
-              </div>
-
-              <div className="text-right">
-                <p className="text-xs text-slate-500">현재 수익</p>
-                <p className={cn(
-                  'text-lg font-bold',
-                  currentStatusBox.pnl != null && currentStatusBox.pnl >= 0 ? 'text-emerald-600' : 'text-red-500',
-                  currentStatusBox.pnl == null && 'text-slate-500 dark:text-slate-400',
-                )}>
-                  {currentStatusBox.pnl == null ? '—' : `${currentStatusBox.pnl >= 0 ? '+' : ''}${currentStatusBox.pnl.toFixed(2)}%`}
-                </p>
-              </div>
-            </div>
-            <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
-              {currentStatusBox.actionText}
-            </p>
-          </div>
-          <Card className="rounded-[8px] border border-slate-200 shadow-none dark:border-gray-700">
+          <Card className={cn(panelBase, 'rounded-2xl shadow-sm')}>
             <Card.Header className="flex flex-col gap-2 border-b border-slate-100 dark:border-gray-800">
+              <div>
+                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">가격 흐름</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">현재 포지션과 시그널 마커를 함께 표시합니다</p>
+              </div>
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
                   {/* 선택 전략 색상 표시 */}
@@ -1550,111 +1669,22 @@ export default function SignalPage({
                   <p className="text-[13px] font-semibold text-slate-900 dark:text-slate-100 tabular-nums tracking-tight">
                     {formatSignalPrice(marketPriceMeta, displayPrice)}
                   </p>
-                  <p className="text-[10px] text-slate-500">{binancePair} · {chartTfLabel}</p>
+                  <p className="text-[10px] text-slate-500">참고 시세</p>
                 </div>
               </div>
 
-              <div className="rounded-lg border border-slate-100 dark:border-gray-800 bg-slate-50/60 dark:bg-gray-900/30 px-2.5 py-2 space-y-1.5">
-                <div className="rounded-md border border-slate-200/90 bg-white/80 px-2 py-1.5 dark:border-gray-700 dark:bg-gray-900/50">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1">
-                    <p className="text-[10px] text-slate-700 dark:text-slate-300 leading-snug">
-                      <span className="font-semibold">검증 기준</span>
-                      {' · '}
-                      {validationBaselineLabel}
-                    </p>
-                    <p className="text-[10px] text-slate-700 dark:text-slate-300 leading-snug">
-                      <span className="font-semibold">현재 차트</span>
-                      {' · '}
-                      <span className="font-mono tabular-nums">{binancePair}</span>
-                    </p>
-                  </div>
-                  {signalAssetClass === 'ALT' && validationSymbolList.length > 0 && (
-                    <p className="mt-1 text-[9px] text-slate-500 dark:text-slate-400 break-all">
-                      ALT Basket: {validationSymbolList.join(', ')}
-                    </p>
-                  )}
-                </div>
-                <p className="text-[10px] text-slate-500 dark:text-slate-500 leading-relaxed">
-                  {SIGNAL_CHART_HINT}
-                </p>
-                <div className="flex flex-wrap items-end gap-2">
-                  <div className="flex-1 min-w-[160px]">
-                    <label htmlFor="signal-chart-symbol" className="text-[9px] text-slate-500 block mb-0.5">
-                      차트 심볼 (Binance USDT)
-                    </label>
-                    <input
-                      id="signal-chart-symbol"
-                      type="text"
-                      value={chartSymbolDraft}
-                      onChange={(e) => setChartSymbolDraft(String(e.target.value).toUpperCase())}
-                      onKeyDown={(e) => { if (e.key === 'Enter') applyChartSymbol() }}
-                      placeholder="예: DOGE, XRP, ARB 또는 DOGEUSDT"
-                      disabled={locked}
-                      autoComplete="off"
-                      className="w-full h-8 px-2.5 text-[11px] rounded-md border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-slate-800 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/35 disabled:opacity-50"
-                    />
-                    {!locked && chartSymbolSuggestions.length > 0 && (
-                      <ul
-                        className="mt-1 max-h-[9.5rem] overflow-y-auto rounded-md border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-[10px] divide-y divide-slate-100 dark:divide-gray-800 shadow-sm"
-                        role="listbox"
-                      >
-                        {chartSymbolSuggestions.map((p) => {
-                          const pair = typeof p.symbol === 'string' ? p.symbol : ''
-                          const base = typeof p.baseAsset === 'string' ? p.baseAsset : ''
-                          const fav = base && favoriteSet.has(base)
-                          return (
-                            <li key={pair} className="flex items-center gap-1 px-1 py-0.5">
-                              <button
-                                type="button"
-                                className="flex-1 min-w-0 text-left font-mono px-1 py-1 rounded hover:bg-slate-50 dark:hover:bg-gray-800 text-slate-800 dark:text-slate-200 truncate"
-                                onClick={() => { commitChartSymbol(pair) }}
-                              >
-                                {pair}
-                              </button>
-                              <button
-                                type="button"
-                                className="p-1 rounded text-amber-500 hover:bg-amber-50/80 dark:hover:bg-amber-950/30 shrink-0"
-                                onClick={() => base && toggleFavorite(base)}
-                                aria-label={fav ? '즐겨찾기 해제' : '즐겨찾기'}
-                              >
-                                <Star size={13} className={cn(fav ? 'fill-amber-400 text-amber-500' : 'text-slate-400')} strokeWidth={2} />
-                              </button>
-                            </li>
-                          )
-                        })}
-                      </ul>
-                    )}
-                    {!locked && chartSymbolSuggestions.length === 0 && String(chartSymbolDraft).trim() && (
-                      <p className="mt-1 text-[10px] text-slate-500 dark:text-slate-400">
-                        일치하는 심볼 없음
-                      </p>
-                    )}
-                  </div>
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    className="h-8 text-[11px]"
-                    onClick={applyChartSymbol}
-                    disabled={locked}
-                  >
-                    적용
-                  </Button>
-                  <span className="text-[10px] text-slate-500 pb-1 tabular-nums whitespace-nowrap">
-                    적용됨: {binancePair}
-                  </span>
-                </div>
-              </div>
+              <p className="text-[9px] text-slate-500 dark:text-slate-500">
+                SAFE MODE · 주문 대행 없음 · 검증 기준: {validationBaselineLabel}
+                {signalAssetClass === 'ALT' && validationSymbolList.length > 0
+                  ? ` · ALT: ${validationSymbolList.slice(0, 3).join(', ')}${validationSymbolList.length > 3 ? '…' : ''}`
+                  : ''}
+              </p>
 
               <div className="rounded-lg border border-slate-200/80 dark:border-gray-700 bg-white/80 dark:bg-gray-900/50 px-2.5 py-2">
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-[10px]">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[10px]">
                   <div>
                     <p className="text-slate-500">전략</p>
                     <p className="font-semibold text-slate-800 dark:text-slate-100 truncate">{displayName || '전략 없음'}</p>
-                  </div>
-                  <div>
-                    <p className="text-slate-500">차트</p>
-                    <p className="font-mono font-semibold text-slate-800 dark:text-slate-100">{binancePair}</p>
                   </div>
                   <div>
                     <p className="text-slate-500">상태</p>
@@ -1666,49 +1696,152 @@ export default function SignalPage({
                       {openPnlPct != null ? `${openPnlPct >= 0 ? '+' : ''}${openPnlPct.toFixed(1)}%` : '—'}
                     </p>
                   </div>
-                  <div>
-                    <p className="text-slate-500">봉 간격</p>
-                    <p className="font-semibold text-slate-800 dark:text-slate-100">{chartTf}</p>
+                </div>
+                <SignalTrustStrip
+                  className="mt-2"
+                  trustPct={signalTrustMetrics.trustPct}
+                  recentSuccessPct={signalTrustMetrics.recentSuccessPct}
+                  matchPct={signalTrustMetrics.matchPct}
+                />
+                <div className={cn('mt-3', signalTrustPanelClass)}>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">
+                    Signal Trust
+                  </p>
+                  {signalPageHighlightEvent && (
+                    <div className="mt-2 rounded-lg border border-amber-200/80 bg-amber-50/60 px-2.5 py-2 text-[11px] leading-snug text-slate-600 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-slate-300">
+                      <p className="font-semibold text-amber-800 dark:text-amber-200">
+                        시장 이벤트: {String(signalPageHighlightEvent.impact ?? '').toLowerCase() === 'high' ? '높음' : '보통'}
+                        {' '}
+                        · {signalPageHighlightEvent.title}
+                      </p>
+                      {signalPageEventOnStrategy ? (
+                        <p className="mt-1 text-slate-600 dark:text-slate-400">
+                          이 전략 영향: {signalPageEventOnStrategy.summary}
+                          {' '}
+                          ({signalPageEventOnStrategy.impactLevel === 'positive' ? '긍정적 참고' : signalPageEventOnStrategy.impactLevel === 'warning' ? '주의' : '중립'})
+                        </p>
+                      ) : null}
+                      {signalEventTrustAdjustment !== 0 ? (
+                        <p className="mt-1 text-slate-500 dark:text-slate-500">
+                          신호 신뢰도 보정: 이벤트 불확실성 반영 {signalEventTrustAdjustment}점
+                        </p>
+                      ) : null}
+                    </div>
+                  )}
+                  <div className="mt-2 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                        시그널 신뢰도
+                        {' '}
+                        <span className="tabular-nums">{signalTrustScore}</span>
+                        점
+                      </p>
+                      <p className="mt-1 text-sm text-slate-600 dark:text-slate-400 leading-snug">
+                        {signalTrustInsight}
+                      </p>
+                    </div>
+                    <span className="shrink-0 rounded-full px-2.5 py-1 text-xs font-medium bg-white/70 text-slate-700 dark:bg-black/20 dark:text-slate-200">
+                      {signalTrustGrade.label}
+                    </span>
                   </div>
+                  {signalTrustEvidenceTags.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {signalTrustEvidenceTags.map((tag) => (
+                        <span
+                          key={tag}
+                          className="rounded-full bg-white/60 px-2 py-1 text-[11px] text-slate-600 dark:bg-black/20 dark:text-slate-300"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 
-              <div className="flex items-center justify-between gap-2">
-                <div className={cn('rounded-lg border border-slate-200 dark:border-gray-700 bg-slate-50/80 dark:bg-gray-900/50 p-1 flex flex-wrap items-center gap-1', locked && 'opacity-60 pointer-events-none')}>
-                  {CHART_TF_OPTIONS.map((o) => (
-                    <button
-                      key={o.value}
-                      type="button"
-                      onClick={() => setChartTf(o.value)}
-                      className={cn(
-                        'h-7 px-2.5 rounded-md text-[11px] font-semibold border transition-colors',
-                        o.value === chartTf
-                          ? 'border-blue-600 bg-blue-50 text-blue-800 dark:border-blue-500 dark:bg-blue-950/40 dark:text-blue-200'
-                          : 'border-transparent bg-transparent text-slate-600 dark:text-slate-300 hover:border-slate-300 hover:bg-white dark:hover:bg-gray-800',
-                      )}
+              <div className="mt-2 rounded-lg border border-slate-200/90 dark:border-gray-700 bg-slate-50/60 dark:bg-gray-900/35 px-2.5 py-2">
+                <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
+                  <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end">
+                    <ChartSymbolCombobox
+                      value={chartSymbolDraft}
+                      onChange={setChartSymbolDraft}
+                      onCommit={commitChartSymbol}
+                      suggestions={chartSymbolOptions}
+                      favoriteSet={favoriteSet}
+                      onToggleFavorite={toggleFavorite}
+                      disabled={locked}
+                      className="sm:max-w-[240px]"
+                    />
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        className="h-8 text-[11px]"
+                        onClick={applyChartSymbol}
+                        disabled={locked}
+                      >
+                        적용
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 text-[11px] shrink-0"
+                        onClick={() => window.open(binanceTradeUrl, '_blank', 'noopener,noreferrer')}
+                      >
+                        <ExternalLink size={12} className="opacity-80 mr-0.5" aria-hidden />
+                        거래소
+                      </Button>
+                    </div>
+                    <div className={cn(
+                      'rounded-lg border border-slate-200 dark:border-gray-700 bg-white dark:bg-gray-900/50 p-1 flex flex-wrap items-center gap-1',
+                      locked && 'opacity-60 pointer-events-none',
+                    )}
                     >
-                      {o.label}
-                    </button>
-                  ))}
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400">
-                    <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                    Live {fmtLiveTime(fastUpdatedAt)}
-                  </span>
-                  <span className={cn(
-                    'text-[11px] font-semibold tabular-nums tracking-tight',
-                    displayChangePct >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500',
-                  )}>
-                    {priceSign}{displayChangePct}%
-                  </span>
-                  {effectiveStatus === 'subscribed' ? (
-                    <Badge variant="info">구독 중</Badge>
-                  ) : (
-                    <Button variant={statusCfg.ctaVariant} size="sm" onClick={handleCTA}>
-                      {statusCfg.cta}
-                    </Button>
-                  )}
+                      {CHART_TF_OPTIONS.map((o) => (
+                        <button
+                          key={o.value}
+                          type="button"
+                          onClick={() => setChartTf(o.value)}
+                          className={cn(
+                            'h-7 px-2.5 rounded-md text-[11px] font-semibold border transition-colors',
+                            o.value === chartTf
+                              ? 'border-blue-600 bg-blue-50 text-blue-800 dark:border-blue-500 dark:bg-blue-950/40 dark:text-blue-200'
+                              : 'border-transparent bg-transparent text-slate-600 dark:text-slate-300 hover:border-slate-300 hover:bg-white dark:hover:bg-gray-800',
+                          )}
+                        >
+                          {o.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex flex-shrink-0 flex-col items-end gap-1 text-right">
+                    <p className="text-[10px] sm:text-[11px] font-medium tabular-nums text-slate-700 dark:text-slate-200">
+                      기준 {kstWallClock}
+                      {' '}
+                      <span className="text-slate-400 font-normal">KST</span>
+                    </p>
+                    <div className="flex flex-wrap items-center justify-end gap-x-2 gap-y-0.5">
+                      <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400 tabular-nums">
+                        <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                        갱신 Live {fmtLiveTime(fastUpdatedAt)}
+                      </span>
+                      <span className={cn(
+                        'text-[11px] font-semibold tabular-nums tracking-tight',
+                        displayChangePct >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-500',
+                      )}>
+                        {priceSign}{displayChangePct}%
+                      </span>
+                      {effectiveStatus === 'subscribed' ? (
+                        <Badge variant="info">구독 중</Badge>
+                      ) : (
+                        <Button variant={statusCfg.ctaVariant} size="sm" onClick={handleCTA}>
+                          {statusCfg.cta}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
             </Card.Header>
@@ -1744,6 +1877,7 @@ export default function SignalPage({
                     if (safeCandles.length > 0) {
                       const multiOn = strategyOverlays.length > 0
                       const useBundles = strategySignalBundles.length > 0
+                      const hasOverlayLines = priceLineOverlays.length > 0
                       return (
                         <CandlestickChart
                           candles={safeCandles}
@@ -1751,11 +1885,15 @@ export default function SignalPage({
                           entries={useBundles || multiOn ? EMPTY_ARRAY : entryIdxs}
                           exits={useBundles || multiOn ? EMPTY_ARRAY : exitIdxs}
                           strategyOverlays={useBundles ? null : (multiOn ? strategyOverlays : null)}
-                          priceLineOverlays={priceLineOverlays.length > 0 ? priceLineOverlays : null}
-                          openEntry={multiOn || useBundles ? null : (openPos?.entryPrice ?? null)}
+                          priceLineOverlays={hasOverlayLines ? priceLineOverlays : null}
+                          openEntry={
+                            hasOverlayLines || multiOn || useBundles
+                              ? null
+                              : (openPos?.entryPrice ?? null)
+                          }
                           openDir={openPos?.type ?? 'LONG'}
                           openPnlPct={openPnlPct}
-                          emphasizeOpen={!multiOn && !useBundles && !!openPos}
+                          emphasizeOpen={!hasOverlayLines && !multiOn && !useBundles && !!openPos}
                           strategyName={chartWatermark}
                         />
                       )
@@ -1806,48 +1944,15 @@ export default function SignalPage({
           </Card>
           </section>
 
-          <section className="signal-reason-section" aria-labelledby="signal-reason-heading">
-            <h2 id="signal-reason-heading" className="text-[16px] font-semibold text-slate-900 dark:text-slate-100 mb-3">
-              진입 근거
-            </h2>
-
-            <SignalReasonPanel
-              items={signalReasonPanelItems}
-              title="진입 근거 · 현재 상태"
-              className="mb-2"
-            />
-
-            <div className="rounded-[8px] border border-slate-200 bg-white px-4 py-4 dark:border-gray-700 dark:bg-gray-900/40">
-              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-                <p className="text-[13px] font-semibold text-slate-900 dark:text-slate-100">
-                  선택 전략: {displayName}
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {typeof onGoValidation === 'function' && (
-                    <Button variant="secondary" size="sm" type="button" onClick={() => onGoValidation(strategyId)}>
-                      <BarChart2 size={12} className="mr-1 opacity-80" />
-                      검증 보기
-                    </Button>
-                  )}
-                  {onNavigate && (
-                    <Button variant="secondary" size="sm" type="button" onClick={() => onNavigate('market')}>
-                      <ExternalLink size={12} className="mr-1 opacity-80" />
-                      전략 상세
-                    </Button>
-                  )}
-                </div>
+          <section className="signal-list-section" aria-label="시그널 기록">
+            <div className={cn(panelBase, 'p-4')}>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">시그널 기록</p>
+                <p className="text-xs text-slate-500 dark:text-slate-400">{recentSignalRows.length}건</p>
               </div>
-              <p className="mb-2 text-[11px] text-slate-600 dark:text-slate-300">
-                현재 시장: {signalMarketState} · 이 전략: {String(strategy?.summary ?? '횡보 최적화')}
-              </p>
-              <EntryRationalePanel
-                notes={entryRationale}
-                strength={signalStrength}
-                openPos={openPos}
-                slTpDisplay={slTpDisplay}
-                pnlPrice={pnlPrice}
-                locked={locked}
-              />
+              <div className="mt-3 rounded-xl border border-slate-100 dark:border-gray-800 overflow-hidden">
+                <SignalList signals={recentSignalRows} onRowClick={onSignalListRowClick} />
+              </div>
             </div>
           </section>
 

@@ -315,6 +315,11 @@ export function getEffectiveProductTier(user) {
   return PLAN_TIER.FREE
 }
 
+/** Ultimate — 전략 자동 실행(거래소 API·자동 주문). Premium 전용. */
+export function canUseAutoExecution(user) {
+  return getEffectiveProductTier(user ?? INITIAL_USER) === PLAN_TIER.PREMIUM
+}
+
 /** 티어 한글 (비교표·요약) */
 export function getPlanTierDisplayName(tier) {
   const m = {

@@ -62,6 +62,20 @@ body {
     @apply rounded-[8px] border border-slate-200 bg-white p-4 shadow-none dark:border-gray-700 dark:bg-gray-900/50;
   }
 
+  .bb-strategy-surface {
+    @apply rounded-2xl border border-slate-200 bg-white dark:border-gray-700 dark:bg-gray-900
+      shadow-sm transition-all duration-200 ease-out;
+  }
+
+  .bb-strategy-surface-interactive {
+    @apply hover:-translate-y-1 hover:shadow-lg hover:border-slate-300 dark:hover:border-gray-500;
+  }
+
+  .bb-strategy-cta {
+    @apply inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 dark:text-blue-400
+      transition-all duration-200 ease-out hover:text-blue-700 dark:hover:text-blue-300;
+  }
+
   .bb-panel-subtle {
     @apply bg-slate-50/70 dark:bg-gray-800/30 border border-slate-200/80 dark:border-gray-800 rounded-lg;
   }
@@ -75,7 +89,21 @@ body {
   }
 
   .bb-kpi-value {
-    @apply text-[15px] font-bold tabular-nums text-slate-900 dark:text-slate-100;
+    @apply text-2xl sm:text-3xl font-bold tabular-nums text-slate-900 dark:text-slate-100;
+  }
+
+  /** 카드 위계 — 제품 전역 */
+  .bb-card-tier-base {
+    @apply rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900;
+  }
+  .bb-card-tier-emphasis {
+    @apply rounded-2xl border border-blue-200 bg-blue-50/70 shadow-sm dark:border-blue-900/50 dark:bg-blue-950/20;
+  }
+  .bb-card-tier-caution {
+    @apply rounded-2xl border border-amber-200 bg-amber-50/70 shadow-sm dark:border-amber-900/45 dark:bg-amber-950/20;
+  }
+  .bb-card-tier-verify {
+    @apply rounded-2xl border border-emerald-200 bg-emerald-50/70 shadow-sm dark:border-emerald-900/40 dark:bg-emerald-950/20;
   }
 
   /*
@@ -130,11 +158,11 @@ body {
   }
 
   .grid-4 {
-    @apply grid grid-cols-2 sm:grid-cols-4 gap-3;
+    @apply grid grid-cols-2 sm:grid-cols-4 gap-4;
   }
 
   .grid-3 {
-    @apply grid grid-cols-1 sm:grid-cols-3 gap-3;
+    @apply grid grid-cols-1 sm:grid-cols-3 gap-4;
   }
 
   .product-h1 {
@@ -171,7 +199,7 @@ body {
   }
 
   .market-card-list {
-    @apply grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3;
+    @apply grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4;
   }
 
   /* 시그널 — 멀티 전략 모니터 레이아웃 */
@@ -254,6 +282,132 @@ body {
 @keyframes bb-btn-dot-pulse {
   0%, 100% { opacity: 0.35; }
   50% { opacity: 1; }
+}
+
+/* Landing Hero ambience (lightweight, non-distracting) */
+.landing-hero-grid {
+  background-image:
+    linear-gradient(to bottom, rgba(148, 163, 184, 0.08) 1px, transparent 1px),
+    linear-gradient(to right, rgba(148, 163, 184, 0.08) 1px, transparent 1px);
+  background-size: 36px 36px;
+  mask-image: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.75) 35%, transparent 85%);
+}
+
+.landing-hero-glow {
+  background:
+    radial-gradient(circle at 20% 25%, rgba(56, 189, 248, 0.14), transparent 38%),
+    radial-gradient(circle at 76% 20%, rgba(99, 102, 241, 0.14), transparent 40%),
+    radial-gradient(circle at 60% 82%, rgba(16, 185, 129, 0.1), transparent 42%);
+}
+
+.landing-orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(56px);
+  opacity: 0.32;
+  will-change: transform;
+}
+
+.landing-orb-a {
+  width: 19rem;
+  height: 19rem;
+  left: -4rem;
+  top: -5rem;
+  background: rgba(59, 130, 246, 0.42);
+}
+
+.landing-orb-b {
+  width: 17rem;
+  height: 17rem;
+  right: -3rem;
+  top: 1rem;
+  background: rgba(16, 185, 129, 0.28);
+}
+
+.landing-orb-c {
+  width: 16rem;
+  height: 16rem;
+  left: 30%;
+  bottom: -6rem;
+  background: rgba(99, 102, 241, 0.28);
+}
+
+.landing-chart-drift {
+  animation: landing-chart-drift 14s ease-in-out infinite alternate;
+}
+
+.hero-preview-card {
+  border-radius: 1rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 20px 60px rgba(2, 6, 23, 0.35);
+  padding: 1rem;
+  transition: all 0.22s ease-out;
+}
+
+.hero-preview-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(125, 211, 252, 0.45);
+  box-shadow: 0 28px 68px rgba(2, 6, 23, 0.45);
+}
+
+@keyframes hero-preview-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.hero-preview-enter {
+  animation: hero-preview-in 0.5s ease-out both;
+}
+
+.hero-preview-delay-1 { animation-delay: 0.04s; }
+.hero-preview-delay-2 { animation-delay: 0.1s; }
+.hero-preview-delay-3 { animation-delay: 0.16s; }
+
+@keyframes floatSlow {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  25% { transform: translate3d(12px, -10px, 0) scale(1.03); }
+  50% { transform: translate3d(-8px, 14px, 0) scale(0.98); }
+  75% { transform: translate3d(10px, 6px, 0) scale(1.02); }
+  100% { transform: translate3d(0, 0, 0) scale(1); }
+}
+
+@keyframes floatSlowReverse {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  25% { transform: translate3d(-14px, 10px, 0) scale(1.02); }
+  50% { transform: translate3d(8px, -12px, 0) scale(0.99); }
+  75% { transform: translate3d(-6px, -4px, 0) scale(1.03); }
+  100% { transform: translate3d(0, 0, 0) scale(1); }
+}
+
+.animate-float-slow {
+  animation: floatSlow 18s ease-in-out infinite;
+}
+
+.animate-float-slow-reverse {
+  animation: floatSlowReverse 22s ease-in-out infinite;
+}
+
+@keyframes landing-chart-drift {
+  from { transform: translateX(0); opacity: 0.58; }
+  to { transform: translateX(-12px); opacity: 0.72; }
+}
+
+@media (max-width: 768px) {
+  .landing-orb-a { width: 15rem; height: 15rem; opacity: 0.24; }
+  .landing-orb-b { width: 13.5rem; height: 13.5rem; opacity: 0.2; }
+  .landing-orb-c { width: 12.5rem; height: 12.5rem; opacity: 0.18; }
+  .landing-hero-grid { opacity: 0.08; }
+  .hero-preview-card {
+    padding: 0.85rem;
+  }
 }
 
 .bb-tab-underline {

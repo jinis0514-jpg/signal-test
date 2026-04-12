@@ -188,7 +188,29 @@ function SignalChart({
     const candleSeries = candleSeriesRef.current
     const volumeSeries = volumeSeriesRef.current
     const chart = chartRef.current
-    if (!candleSeries || normalizedCandles.length === 0) return
+
+    const clearPriceLines = () => {
+      const series = candleSeriesRef.current
+      const lines = priceLineApiRef.current
+      priceLineApiRef.current = []
+      lines.forEach((l) => {
+        try {
+          if (series && typeof series.removePriceLine === 'function') {
+            series.removePriceLine(l)
+          } else if (l && typeof l.remove === 'function') {
+            l.remove()
+          }
+        } catch {
+          /* noop */
+        }
+      })
+    }
+
+    if (!candleSeries) return
+    if (normalizedCandles.length === 0) {
+      clearPriceLines()
+      return
+    }
 
     candleSeries.setData(
       normalizedCandles.map((c) => ({
@@ -225,26 +247,24 @@ function SignalChart({
       markersApiRef.current.setMarkers([])
     }
 
-    priceLineApiRef.current.forEach((l) => {
-      try {
-        l.remove()
-      } catch {
-        /* noop */
-      }
-    })
-    priceLineApiRef.current = []
+    clearPriceLines()
 
     if (Array.isArray(priceLineOverlays) && priceLineOverlays.length > 0) {
+      const seenKeys = new Set()
       for (const pl of priceLineOverlays) {
         const pr = pl.price
         if (pr == null || !Number.isFinite(Number(pr))) continue
+        const title = String(pl.title ?? '').slice(0, 28)
+        const dedupeKey = `${Number(pr).toFixed(6)}|${title}`
+        if (seenKeys.has(dedupeKey)) continue
+        seenKeys.add(dedupeKey)
         const line = candleSeries.createPriceLine({
           price: Number(pr),
           color: pl.color || '#64748b',
           lineWidth: pl.lineWidth ?? 1,
           lineStyle: 2,
           axisLabelVisible: true,
-          title: String(pl.title ?? '').slice(0, 28),
+          title,
         })
         priceLineApiRef.current.push(line)
       }

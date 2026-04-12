@@ -1291,18 +1291,20 @@ export default function EditorPage({
   ])
 
   const oneLineSummary = useMemo(() => {
+    const nm = String(name ?? '').trim()
+    const head = nm ? `「${nm}」 · ` : ''
     const a = asset || '—'
     const tf = TIMEFRAME_LABEL[timeframe] ?? (timeframe || '—')
     if (editorMode === 'code') {
       const applied = dslOrJsonPayload
         ? formatStrategyConditionsSummary(dslOrJsonPayload)
         : '미적용'
-      return `${a} / ${tf} / 코드 — ${applied}`
+      return `${head}${a} / ${tf} / 코드 — ${applied}`
     }
     const condStr = formatConditionsSummary(conditionsForSummary)
     const riskStr = formatEditorRiskSummary(riskConfigMemo)
-    return `${a} / ${tf} / ${condStr} / ${riskStr}`
-  }, [asset, timeframe, editorMode, dslOrJsonPayload, conditionsForSummary, riskConfigMemo])
+    return `${head}${a} / ${tf} / ${condStr} / ${riskStr}`
+  }, [name, asset, timeframe, editorMode, dslOrJsonPayload, conditionsForSummary, riskConfigMemo])
 
   /* 캔들만 debounce fetch — 리스크/조건 변경은 useMemo로 재계산 */
   useEffect(() => {
@@ -1967,87 +1969,6 @@ export default function EditorPage({
       >
 
         <section className="editor-left min-w-0 space-y-3">
-          {/* 코드 모드: 상단만 슬림하게 — 자산·봉·기간·이름 */}
-          {strategyKind !== 'method' && editorMode === 'code' && (
-            <Card className="editor-card-product border-slate-200/80 dark:border-gray-700">
-              <Card.Content className="py-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
-                <div>
-                  <label className="text-[10px] text-slate-500 block mb-1">전략 이름</label>
-                  <Input
-                    placeholder="이름 (저장 시 필요)"
-                    value={name}
-                    onChange={(e) => { setName(e.target.value); setSaveError(''); setUiErrors((p) => ({ ...p, name: undefined })) }}
-                    className="h-9 text-[12px]"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] text-slate-500 block mb-1">자산</label>
-                  <select
-                    value={asset}
-                    onChange={(e) => { setAsset(e.target.value); setUiErrors((p) => ({ ...p, asset: undefined })) }}
-                    className="w-full h-9 text-[12px] px-2 border border-gray-200 dark:border-gray-700 rounded-md bg-white dark:bg-gray-900"
-                  >
-                    <option value="">선택</option>
-                    <option value="BTC">BTC</option>
-                    <option value="ETH">ETH</option>
-                    <option value="SOL">SOL</option>
-                    <option value="ALT">알트코인</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-[10px] text-slate-500 block mb-1">봉 간격</label>
-                  <select
-                    value={timeframe || '1h'}
-                    onChange={(e) => { setTimeframe(e.target.value); setUiErrors((p) => ({ ...p, timeframe: undefined })) }}
-                    className="w-full h-9 text-[12px] px-2 border border-gray-200 dark:border-gray-700 rounded-md bg-white dark:bg-gray-900"
-                  >
-                    {DATA_INTERVAL_OPTIONS.map((o) => (
-                      <option key={o.id} value={o.id}>{o.label}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-[10px] text-slate-500 block mb-1">미리보기 기간</label>
-                  <select
-                    value={previewPeriodKey}
-                    onChange={(e) => setPreviewPeriodKey(e.target.value)}
-                    className="w-full h-9 text-[12px] px-2 border border-gray-200 dark:border-gray-700 rounded-md bg-white dark:bg-gray-900"
-                  >
-                    {PREVIEW_PERIOD_OPTIONS.map((o) => (
-                      <option key={o.id} value={o.id}>{o.label}</option>
-                    ))}
-                  </select>
-                </div>
-                {String(asset || '').toUpperCase() === 'ALT' && (
-                  <div className="sm:col-span-2 lg:col-span-4 rounded-md border border-indigo-100 dark:border-indigo-900/35 bg-indigo-50/50 dark:bg-indigo-950/25 px-3 py-2.5">
-                    <p className="text-[10px] text-indigo-800 dark:text-indigo-300 leading-relaxed">
-                      {assetUniverseCopy.altBasketValidation}
-                      {' '}
-                      시그널 페이지에서는 차트 심볼을 자유롭게 바꿀 수 있으며, 검증 성과는 여기 선택한 코인 묶음과 별개로 표시됩니다.
-                    </p>
-                    <EditorAltValidationSection
-                      altSymDraft={altSymDraft}
-                      setAltSymDraft={setAltSymDraft}
-                      altValidationSymbols={altValidationSymbols}
-                      setAltValidationSymbols={setAltValidationSymbols}
-                      pairOptions={binancePairMetaEditor}
-                      className="mt-2 space-y-2"
-                    />
-                  </div>
-                )}
-                <div className="sm:col-span-2 lg:col-span-4">
-                  <label className="text-[10px] text-slate-500 block mb-1">한 줄 설명 (선택)</label>
-                  <Input
-                    placeholder="이 전략이 뭘 하는지 한 문장으로"
-                    value={description}
-                    onChange={(e) => setDescription(e.target.value)}
-                    className="h-9 text-[12px]"
-                  />
-                </div>
-              </Card.Content>
-            </Card>
-          )}
-
           {/* 1) 템플릿 — 간편 제작에서 먼저 고를 수 있게 상단 배치 */}
           {strategyKind !== 'method' && editorMode === 'builder' && mode === 'nocode' && (
             <Card className="editor-card-product">
@@ -2089,11 +2010,11 @@ export default function EditorPage({
             </Card>
           )}
 
-          {/* 2) 기본 정보 카드 — 간편·매매법 전용 (코드 모드는 상단 슬림 바 사용) */}
-          {(strategyKind === 'method' || editorMode === 'builder') && (
+          {/* 2) 기본 정보 — 간편/코드 공통 상단 + PDF·마켓 제출 상세 */}
+          {(strategyKind === 'method' || strategyKind === 'signal') && (
           <Card className="editor-card-product">
             <Card.Header className="flex items-center justify-between gap-2">
-              <Card.Title>{editorMode === 'builder' && strategyKind !== 'method' ? '이름과 시장' : '기본 정보'}</Card.Title>
+              <Card.Title>{strategyKind === 'method' ? '기본 정보' : '전략 기본'}</Card.Title>
               <div className="flex items-center gap-2">
                 <Badge variant={statusCfg.badge}>{statusCfg.label}</Badge>
                 {saveStatus === 'draft' && <span className="text-[11px] text-slate-500">✓ 저장됨</span>}
@@ -2101,28 +2022,7 @@ export default function EditorPage({
               </div>
             </Card.Header>
             <Card.Content className="space-y-2.5">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                <div className="sm:col-span-1">
-                  <label className="text-[10px] text-slate-400 block mb-1">전략 타입</label>
-                  <select
-                    value={strategyKind}
-                    onChange={(e) => {
-                      const v = e.target.value
-                      setStrategyKind(v === 'method' ? 'method' : 'signal')
-                      if (v === 'method') {
-                        setMode('nocode')
-                        setSelected([])
-                        setCondParams({})
-                      }
-                      setSaveError('')
-                      setUiErrors((p) => ({ ...p, form: undefined }))
-                    }}
-                    className="w-full h-8 text-[11px] px-2 border border-gray-200 dark:border-gray-700 rounded-md bg-white dark:bg-gray-900 text-gray-600 dark:text-gray-400 focus:outline-none"
-                  >
-                    <option value="signal">전략 (실행)</option>
-                    <option value="method">매매법 (PDF)</option>
-                  </select>
-                </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div className="sm:col-span-1">
                   <label className="text-[10px] text-slate-400 block mb-1">자산</label>
                   <select
@@ -2183,17 +2083,15 @@ export default function EditorPage({
 
               <div>
                 <label className="text-[10px] text-slate-400 block mb-1">
-                  {editorMode === 'builder' && strategyKind !== 'method' ? '한 줄 설명' : '전략 설명'}
+                  {strategyKind === 'method' ? '매매법 설명' : '전략 설명'}
                 </label>
                 <textarea
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  rows={editorMode === 'builder' && strategyKind !== 'method' ? 2 : 3}
+                  rows={strategyKind === 'method' ? 4 : 3}
                   placeholder={strategyKind === 'method'
                     ? '매매법 규칙(진입/청산/예외), 리스크 관리, 적용 시장/타임프레임, 실패 사례를 포함해 주세요.'
-                    : editorMode === 'builder'
-                      ? '예: 4시간봉에서 추세가 살아 있을 때만 따라가기'
-                      : '전략 의도·진입 철학을 짧게 적어주세요.'}
+                    : '예: 4시간봉 추세 유지 시 진입, 횡보 시 관망'}
                   className="
                     w-full text-[11px] px-2.5 py-2 rounded-md
                     border border-gray-200 dark:border-gray-700
@@ -2203,7 +2101,7 @@ export default function EditorPage({
                 />
               </div>
 
-              {editorMode === 'builder' && strategyKind !== 'method' && (
+              {strategyKind === 'signal' && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
                   <div>
                     <label className="text-[10px] text-slate-400 block mb-1">미리보기·차트 기간</label>
@@ -2222,42 +2120,15 @@ export default function EditorPage({
                   </p>
                 </div>
               )}
-            </Card.Content>
-          </Card>
-          )}
 
-          {/* 3) 전략 설명 자료 (signal 전용) */}
-          {strategyKind !== 'method' && (
-            <Card>
-              <Card.Header>
-                <Card.Title>
-                  {editorMode === 'builder' ? '마켓 제출·판매 시 설명 (선택)' : '전략 설명 자료'}
-                </Card.Title>
-                <p className="text-[10px] text-slate-500 mt-0.5">
-                  PDF는 검증이 아니라 구매자용 설명입니다. 요약·시장·리스크를 적어 주세요.
-                </p>
-              </Card.Header>
-              <Card.Content className={cn('space-y-3', editorMode === 'builder' && 'pt-0')}>
-                <details
-                  open={editorMode === 'code'}
-                  className="group rounded-lg border border-slate-100 dark:border-gray-800 bg-slate-50/40 dark:bg-gray-900/20"
-                >
-                  <summary
-                    className={cn(
-                      'cursor-pointer list-none px-3 py-2.5 text-[12px] font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-between gap-2',
-                      editorMode === 'code' && 'hidden',
-                    )}
-                  >
-                    <span>PDF·상세 설명 펼치기</span>
-                    <span className="text-[10px] font-normal text-slate-400">선택</span>
-                  </summary>
-                  <div className={cn(
-                    'space-y-3',
-                    editorMode === 'builder' && 'px-3 pb-3 border-t border-slate-100 dark:border-gray-800 pt-3',
-                  )}
-                  >
+              {strategyKind === 'signal' && (
+                <>
+                  <div className="bb-divider my-3" />
+                  <p className="text-[10px] text-slate-500 mb-2">
+                    간편 제작·코드 제작 동일한 순서입니다: 이름·시장 → 설명 → PDF(선택) → 아래는 마켓 제출 시 추가 입력입니다.
+                  </p>
 
-                {/* PDF 업로드 */}
+                {/* PDF — 상단에 항상 노출 */}
                 <div>
                   <SectionHeader title="설명 PDF (선택)" sub="진입/청산 전략 설명 문서 · 최대 25MB" />
                   <input
@@ -2318,6 +2189,16 @@ export default function EditorPage({
                     PDF는 검증 데이터가 아닌 설명 자료입니다. 전략 의도·적용 시장·리스크·실패 조건을 담아주세요.
                   </p>
                 </div>
+
+                  <details
+                    open={false}
+                    className="mt-3 rounded-lg border border-slate-100 dark:border-gray-800 bg-slate-50/40 dark:bg-gray-900/20"
+                  >
+                    <summary className="cursor-pointer list-none px-3 py-2.5 text-[12px] font-semibold text-slate-700 dark:text-slate-200 flex items-center justify-between gap-2">
+                      <span>마켓 제출 추가 입력</span>
+                      <span className="text-[10px] font-normal text-slate-400">선택</span>
+                    </summary>
+                    <div className="space-y-3 px-3 pb-3 border-t border-slate-100 dark:border-gray-800 pt-3">
 
                 <div className="bb-divider" />
 
@@ -2438,10 +2319,12 @@ export default function EditorPage({
                   />
                 </div>
 
-                  </div>
-                </details>
-              </Card.Content>
-            </Card>
+                    </div>
+                  </details>
+                </>
+              )}
+            </Card.Content>
+          </Card>
           )}
 
           {/* 4) 진입 조건 카드 */}
@@ -2750,7 +2633,7 @@ export default function EditorPage({
               <div>
                 <Card.Title>결과 프리뷰</Card.Title>
                 <p className="text-[11px] text-slate-500 mt-0.5">
-                  입력이 바뀌면 자동으로 갱신됩니다. 필요하면 테스트 버튼으로 수동 재계산할 수 있어요.
+                  자산·조건·기간이 바뀌면 왼쪽 입력과 동일한 설정으로 미리보기가 갱신됩니다. 테스트 버튼은 그 시점 스냅샷을 고정해 두고 싶을 때 쓰면 됩니다.
                 </p>
                 <p className="mt-2 text-[11px] text-slate-600 dark:text-slate-400 line-clamp-2 border-l-2 border-blue-200 dark:border-blue-900/50 pl-2">
                   <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide">상태 요약 · </span>
@@ -2798,23 +2681,28 @@ export default function EditorPage({
               {/* 차트 — 데이터 있으면 표시, 없으면 placeholder */}
               {strategyKind !== 'method' && (
                 <div>
-                  <SectionHeader title="차트 미리보기" sub={testResult ? `${Array.isArray(testResult.signals) ? testResult.signals.length : 0}건 시그널 · 진입·청산 마커` : '가격과 시그널'} />
-                  {previewCandles?.length > 0 && testResult ? (
+                  <SectionHeader
+                    title="차트 미리보기"
+                    sub={
+                      testResult
+                        ? `${Array.isArray(testResult.signals) ? testResult.signals.length : 0}건 시그널 · 테스트 스냅샷`
+                        : previewPhase === 'ok'
+                          ? '자동 미리보기 · 진입·청산 마커'
+                          : '가격과 시그널'
+                    }
+                  />
+                  {previewCandles?.length > 0 && previewPhase === 'ok' ? (
                     <div className="rounded-[8px] border border-slate-200 dark:border-gray-800 overflow-hidden bg-slate-50/30 dark:bg-gray-950/20 h-[220px]">
-                      {previewPhase === 'loading' ? (
-                        <ChartSkeleton className="h-full min-h-[200px]" />
-                      ) : (
-                        <CandlestickChart
-                          candles={previewCandles}
-                          entries={previewChartIndices.entryIdxs}
-                          exits={previewChartIndices.exitIdxs}
-                          openEntry={openPos?.entryPrice ?? null}
-                          openDir={openPos?.type ?? 'LONG'}
-                          openPnlPct={openPos?.pnlPct ?? null}
-                          emphasizeOpen={!!openPos}
-                          strategyName={name?.trim() || '미리보기'}
-                        />
-                      )}
+                      <CandlestickChart
+                        candles={previewCandles}
+                        entries={previewChartIndices.entryIdxs}
+                        exits={previewChartIndices.exitIdxs}
+                        openEntry={(testResult?.openPos ?? previewOpenPos)?.entryPrice ?? null}
+                        openDir={(testResult?.openPos ?? previewOpenPos)?.type ?? 'LONG'}
+                        openPnlPct={(testResult?.openPos ?? previewOpenPos)?.pnlPct ?? null}
+                        emphasizeOpen={Boolean(testResult?.openPos ?? previewOpenPos)}
+                        strategyName={name?.trim() || '미리보기'}
+                      />
                     </div>
                   ) : (
                     <div className="rounded-[8px] border border-dashed border-slate-200 dark:border-gray-700 bg-slate-50/50 dark:bg-gray-900/20 h-[200px] flex flex-col items-center justify-center px-4 text-center">

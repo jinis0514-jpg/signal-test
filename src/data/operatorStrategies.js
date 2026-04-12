@@ -7,41 +7,76 @@ export const OPERATOR_STRATEGY_SIM_IDS = {
   'op-btc-trend-core': 'btc-trend',
   'op-eth-range-core': 'eth-range',
   'op-sol-momentum-core': 'sol-momentum',
+  'op-btc-swing-pro': 'btc-trend',
+  'op-alt-scalp': 'sol-momentum',
+  'op-rsi-counter': 'eth-range',
+  'op-bb-breakout': 'btc-breakout',
+  'op-grid-range': 'eth-range',
+  'op-mtf-trend': 'btc-trend',
 }
 
 const BASE = {
-  /** 마켓 노출은 approved|published 정책과 동일하게 취급 */
   status: 'approved',
   strategy_type: 'trend',
   isOperator: true,
   author: 'BB 운영팀',
-  typeLabel: '운영 전략',
   ctaStatus: 'not_started',
-  recommendBadge: 'BEST',
-  fitSummary: '플랫폼 큐레이션 · 실제 시세·엔진 연동',
-  performance: {
-    totalReturnPct: 18.4,
-    winRate: 56,
-    tradeCount: 42,
-    maxDrawdown: 11.2,
-  },
-  /** 랭킹·최근 성과 섹션용 (엔진 거래 없을 때) */
-  roi7d: 2.1,
-  roi30d: 5.8,
-  recentSignals: [{ dir: 'LONG', time: '—' }],
+  recommendBadge: 'GOOD',
+  fitSummary: '플랫폼 큐레이션 · 시세·엔진 연동',
+  /** UI·마켓: 실거래가 아닌 엔진·백테스트 기반 운영 큐레이션임을 구분 */
+  dataSource: 'engine_backtest',
+  verification_status: 'engine_verified',
+  marketLabel: '운영 큐레이션',
   updated_at: new Date().toISOString(),
 }
 
-export const OPERATOR_STRATEGIES_RAW = [
-  {
+function op({
+  id,
+  name,
+  description,
+  asset,
+  timeframe,
+  strategy_type,
+  type,
+  typeKey,
+  profileKey,
+  performance,
+  roi7d,
+  roi30d,
+  recentSignals,
+  recommendBadge = 'GOOD',
+  fitSummary,
+}) {
+  return {
     ...BASE,
+    id,
+    name,
+    description,
+    asset,
+    timeframe,
+    strategy_type: strategy_type ?? 'trend',
+    type: type ?? 'trend',
+    typeKey,
+    profileKey,
+    recommendBadge,
+    fitSummary: fitSummary ?? BASE.fitSummary,
+    performance,
+    roi7d,
+    roi30d: roi30d ?? performance?.roi30d ?? 5,
+    recentSignals,
+  }
+}
+
+export const OPERATOR_STRATEGIES_RAW = [
+  op({
     id: 'op-btc-trend-core',
     name: 'BTC Trend Core (운영)',
     description:
       'BTC USDT 기준 EMA 정렬·RSI 필터 추세 추종. 횡보 구간에서는 신호 빈도가 줄 수 있어 리스크 비율을 낮추는 운영 가이드를 따릅니다.',
     asset: 'btc',
     timeframe: '1h',
-    type: 'trend',
+    typeKey: 'trend',
+    profileKey: 'stable',
     performance: {
       totalReturnPct: 21.2,
       winRate: 58,
@@ -51,18 +86,23 @@ export const OPERATOR_STRATEGIES_RAW = [
     },
     roi7d: 3.2,
     roi30d: 7.1,
-    recentSignals: [{ dir: 'LONG', time: '—' }],
-  },
-  {
-    ...BASE,
+    recentSignals: [
+      { dir: 'LONG', time: '03/25 14:00', result: '진행중', closed: false },
+      { dir: 'EXIT', time: '03/24 09:00', result: '+1.2%', closed: true },
+    ],
+    recommendBadge: 'BEST',
+  }),
+  op({
     id: 'op-eth-range-core',
     name: 'ETH Range Mean Revert (운영)',
     description:
-      'ETH 단기 밴드 터치·평균회귀 성격. 변동성 확대 시 손절 거리를 넓히는 대신 포지션 크기를 줄이는 운영 원칙입니다.',
+      'ETH 단기 밴드 터치·평균회귀. 변동성 확대 시 손절 거리를 넓히는 대신 포지션 크기를 줄이는 운영 원칙입니다.',
     asset: 'eth',
     timeframe: '1h',
     strategy_type: 'volatility',
-    type: 'volatility',
+    type: 'range',
+    typeKey: 'range_box',
+    profileKey: 'beginner',
     performance: {
       totalReturnPct: 14.6,
       winRate: 61,
@@ -72,10 +112,12 @@ export const OPERATOR_STRATEGIES_RAW = [
     },
     roi7d: 1.4,
     roi30d: 4.2,
-    recentSignals: [{ dir: 'SHORT', time: '—' }],
-  },
-  {
-    ...BASE,
+    recentSignals: [
+      { dir: 'SHORT', time: '03/25 11:00', result: '진행중', closed: false },
+      { dir: 'LONG', time: '03/23 16:00', result: '+0.9%', closed: true },
+    ],
+  }),
+  op({
     id: 'op-sol-momentum-core',
     name: 'SOL Momentum Pulse (운영)',
     description:
@@ -84,6 +126,8 @@ export const OPERATOR_STRATEGIES_RAW = [
     timeframe: '4h',
     strategy_type: 'momentum',
     type: 'momentum',
+    typeKey: 'breakout',
+    profileKey: 'aggressive',
     performance: {
       totalReturnPct: 26.8,
       winRate: 52,
@@ -93,6 +137,154 @@ export const OPERATOR_STRATEGIES_RAW = [
     },
     roi7d: -0.8,
     roi30d: 6.5,
-    recentSignals: [{ dir: 'LONG', time: '—' }],
-  },
+    recentSignals: [
+      { dir: 'LONG', time: '03/25 08:30', result: '+2.1%', closed: true },
+      { dir: 'EXIT', time: '03/24 19:00', result: '+0.8%', closed: true },
+    ],
+    recommendBadge: 'RISKY',
+  }),
+  op({
+    id: 'op-btc-swing-pro',
+    name: 'BTC Multi-TF Swing (운영)',
+    description:
+      '4시간·일봉 정렬이 맞을 때만 스윙 진입. 노이즈 구간을 줄이기 위해 하위 봉 필터를 함께 둡니다.',
+    asset: 'btc',
+    timeframe: '4h',
+    typeKey: 'swing',
+    profileKey: 'stable',
+    performance: {
+      totalReturnPct: 19.4,
+      winRate: 59,
+      tradeCount: 62,
+      maxDrawdown: 11.8,
+      monthly_price_krw: 17900,
+    },
+    roi7d: 2.0,
+    roi30d: 5.2,
+    recentSignals: [
+      { dir: 'LONG', time: '03/22 10:00', result: '+3.4%', closed: true },
+      { dir: 'LONG', time: '03/25 13:00', result: '대기중', closed: false },
+    ],
+  }),
+  op({
+    id: 'op-alt-scalp',
+    name: 'ALT Basket Scalp (운영)',
+    description:
+      '알트 상대강도 상위 종목만 짧은 보유로 회전. 유동성 이벤트 시 신호를 일시 중단합니다.',
+    asset: 'alt',
+    timeframe: '15m',
+    typeKey: 'scalping',
+    profileKey: 'aggressive',
+    performance: {
+      totalReturnPct: 31.5,
+      winRate: 54,
+      tradeCount: 210,
+      maxDrawdown: 18.2,
+      monthly_price_krw: 34900,
+    },
+    roi7d: 4.1,
+    roi30d: 8.3,
+    recentSignals: [
+      { dir: 'SHORT', time: '03/25 12:10', result: '진행중', closed: false },
+      { dir: 'EXIT', time: '03/25 09:00', result: '+0.6%', closed: true },
+    ],
+    recommendBadge: 'GOOD',
+  }),
+  op({
+    id: 'op-rsi-counter',
+    name: 'RSI 극단 역추세 (운영)',
+    description:
+      '과매수·과매도 극단에서 평균회귀를 노립니다. 강한 추세장에서는 손실이 커질 수 있어 손절 규칙을 엄격히 적용합니다.',
+    asset: 'eth',
+    timeframe: '1h',
+    type: 'mean_reversion',
+    typeKey: 'counter',
+    profileKey: 'stable',
+    performance: {
+      totalReturnPct: 16.2,
+      winRate: 63,
+      tradeCount: 98,
+      maxDrawdown: 9.1,
+      monthly_price_krw: 12900,
+    },
+    roi7d: 0.9,
+    roi30d: 3.6,
+    recentSignals: [
+      { dir: 'LONG', time: '03/24 15:00', result: '+1.1%', closed: true },
+      { dir: 'EXIT', time: '03/25 07:00', result: '청산', closed: true },
+    ],
+  }),
+  op({
+    id: 'op-bb-breakout',
+    name: 'BB Squeeze Breakout (운영)',
+    description:
+      '밴드 수축 후 변동성 확대 돌파를 추적합니다. 가짜 돌파가 잦은 구간에서는 신뢰도가 낮아질 수 있습니다.',
+    asset: 'btc',
+    timeframe: '1h',
+    type: 'breakout',
+    typeKey: 'breakout',
+    profileKey: 'aggressive',
+    performance: {
+      totalReturnPct: 35.1,
+      winRate: 49,
+      tradeCount: 72,
+      maxDrawdown: 20.4,
+      monthly_price_krw: 25900,
+    },
+    roi7d: 5.6,
+    roi30d: 9.2,
+    recentSignals: [
+      { dir: 'LONG', time: '03/25 06:00', result: '진행중', closed: false },
+      { dir: 'SHORT', time: '03/21 14:00', result: '+2.8%', closed: true },
+    ],
+    recommendBadge: 'RISKY',
+  }),
+  op({
+    id: 'op-grid-range',
+    name: 'Range Grid Steady (운영)',
+    description:
+      '박스권 상·하단에서 분할 진입·청산. 추세 전환 시 그리드를 재배치하는 운영 절차가 포함됩니다.',
+    asset: 'btc',
+    timeframe: '1h',
+    type: 'range',
+    typeKey: 'range_box',
+    profileKey: 'beginner',
+    performance: {
+      totalReturnPct: 12.8,
+      winRate: 72,
+      tradeCount: 410,
+      maxDrawdown: 6.5,
+      monthly_price_krw: 8900,
+    },
+    roi7d: 0.7,
+    roi30d: 2.9,
+    recentSignals: [
+      { dir: 'LONG', time: '03/25 04:00', result: '+0.4%', closed: true },
+      { dir: 'SHORT', time: '03/25 05:00', result: '+0.3%', closed: true },
+    ],
+  }),
+  op({
+    id: 'op-mtf-trend',
+    name: 'MTF Trend Starter (운영)',
+    description:
+      '15m·1h·4h 방향이 일치할 때만 진입해 초보 운용자의 과매매를 줄입니다. 횡보장에서는 신호가 드물 수 있습니다.',
+    asset: 'btc',
+    timeframe: '1h',
+    typeKey: 'trend',
+    profileKey: 'beginner',
+    performance: {
+      totalReturnPct: 17.9,
+      winRate: 57,
+      tradeCount: 44,
+      maxDrawdown: 10.9,
+      monthly_price_krw: 11900,
+    },
+    roi7d: 1.6,
+    roi30d: 4.8,
+    recentSignals: [
+      { dir: 'LONG', time: '03/20 09:00', result: '+2.2%', closed: true },
+      { dir: 'EXIT', time: '03/25 02:00', result: '대기', closed: true },
+    ],
+    recommendBadge: 'BEST',
+  }),
 ]

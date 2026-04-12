@@ -2,6 +2,12 @@ import { cn } from '../../lib/cn'
 import { MARKET_SORT_TABS } from '../../data/marketMockData'
 
 export default function MarketSortBar({ value, onChange }) {
+  const SIMPLE_SORT_TABS = MARKET_SORT_TABS.filter((tab) => (
+    tab.value === 'recommend_desc'
+    || tab.value === 'return_desc'
+    || tab.value === 'winRate_desc'
+    || tab.value === 'updated_desc'
+  ))
   return (
     <div
       className="
@@ -14,7 +20,7 @@ export default function MarketSortBar({ value, onChange }) {
       <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mr-1">
         정렬
       </span>
-      {MARKET_SORT_TABS.map((tab) => (
+      {SIMPLE_SORT_TABS.map((tab) => (
         <button
           key={tab.value}
           type="button"

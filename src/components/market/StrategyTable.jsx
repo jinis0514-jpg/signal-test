@@ -64,7 +64,7 @@ function TableRow({ strategy, onDetail, user, onStartTrial, onSimulate, onGoSubs
           {strategy.name}
         </span>
         <span className="text-[12px] text-slate-400 whitespace-nowrap hidden xl:block">
-          {strategy.typeLabel}{!isMethod && strategy.strategyTypeLabel ? ` · ${strategy.strategyTypeLabel}` : ''}
+          {strategy.typeLabel}{!isMethod && strategy.profileLabel ? ` · ${strategy.profileLabel}` : ''}
         </span>
       </div>
 

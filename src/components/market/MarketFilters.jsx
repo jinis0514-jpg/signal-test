@@ -4,8 +4,11 @@ import Input from '../ui/Input'
 import Button from '../ui/Button'
 import {
   TYPE_OPTIONS,
+  ARCHETYPE_OPTIONS,
+  PROFILE_OPTIONS,
   SORT_OPTIONS,
   ASSET_OPTIONS,
+  MARKET_LENS_OPTIONS,
 } from '../../data/marketMockData'
 
 function FilterSection({ title, children }) {
@@ -75,10 +78,21 @@ export default function MarketFilters({ filters, onChange, onReset }) {
     )
   }
 
+  function toggleLens(value) {
+    const arr = filters.marketLens ?? []
+    onChange(
+      'marketLens',
+      arr.includes(value) ? arr.filter((v) => v !== value) : [...arr, value],
+    )
+  }
+
   const isActive =
     filters.search !== '' ||
     filters.types.length > 0 ||
+    (filters.archetype ?? []).length > 0 ||
+    (filters.profile ?? []).length > 0 ||
     (filters.assets ?? []).length > 0 ||
+    (filters.marketLens ?? []).length > 0 ||
     filters.roiMin !== '' ||
     (filters.recentRoiMin ?? '') !== '' ||
     filters.winMin !== '' ||
@@ -88,8 +102,9 @@ export default function MarketFilters({ filters, onChange, onReset }) {
 
   return (
     <div className="p-3.5">
+      <p className="mb-3 text-[11px] font-semibold text-slate-700 dark:text-slate-200">목록 필터</p>
 
-      <FilterSection title="전략 검색">
+      <FilterSection title="검색">
         <Input
           icon={<Search size={12} strokeWidth={1.8} />}
           value={filters.search}
@@ -106,11 +121,35 @@ export default function MarketFilters({ filters, onChange, onReset }) {
         />
       </FilterSection>
 
-      <FilterSection title="전략 유형">
+      <FilterSection title="원본 유형 (태그)">
         <PillGroup
           options={TYPE_OPTIONS}
           selected={filters.types}
           onToggle={(v) => toggle('types', v)}
+        />
+      </FilterSection>
+
+      <FilterSection title="분류 유형">
+        <PillGroup
+          options={ARCHETYPE_OPTIONS}
+          selected={filters.archetype ?? []}
+          onToggle={(v) => toggle('archetype', v)}
+        />
+      </FilterSection>
+
+      <FilterSection title="투자 성향">
+        <PillGroup
+          options={PROFILE_OPTIONS}
+          selected={filters.profile ?? []}
+          onToggle={(v) => toggle('profile', v)}
+        />
+      </FilterSection>
+
+      <FilterSection title="시장 연동">
+        <PillGroup
+          options={MARKET_LENS_OPTIONS}
+          selected={filters.marketLens ?? []}
+          onToggle={toggleLens}
         />
       </FilterSection>
 

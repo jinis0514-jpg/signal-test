@@ -4,11 +4,15 @@ function Card({ className, children, interactive = false }) {
   return (
     <div
       className={cn(
-        'bg-white border border-slate-200 rounded-[8px]',
-        'dark:bg-gray-900 dark:border-gray-800',
-        'shadow-none',
+        'bg-white border border-slate-200 rounded-xl',
+        'dark:bg-gray-900 dark:border-gray-700',
+        'shadow-sm shadow-slate-950/[0.02] dark:shadow-black/15',
+        'transition-all duration-200 ease-out',
         interactive && [
-          'hover:border-slate-300 dark:hover:border-gray-600',
+          'hover:scale-[1.02]',
+          'hover:-translate-y-1',
+          'hover:shadow-lg hover:shadow-slate-900/12 dark:hover:shadow-black/35',
+          'hover:border-blue-200 dark:hover:border-blue-600/60',
           'cursor-pointer',
         ],
         className,

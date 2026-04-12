@@ -5,6 +5,11 @@ import PlanCard from '../components/plan/PlanCard'
 import Button from '../components/ui/Button'
 import { getPlanCatalog } from '../lib/planCatalog'
 import { createCheckoutIntent } from '../lib/checkoutIntent'
+import {
+  STRATEGY_MONTHLY_PRICE_KRW,
+  FIRST_MONTH_PROMO_PRICE_KRW,
+  CHECKOUT_HINT,
+} from '../lib/conversionUx'
 
 export default function PlansPage({
   user,
@@ -48,8 +53,15 @@ export default function PlansPage({
     <PageShell wide className="min-w-0 pb-10">
       <PageHeader
         title="요금제 안내"
-        description="무료로 판단·탐색은 충분히 하고, 깊게 쓰실 때 구독으로 이어가실 수 있어요. 실제 결제 연동 전에는 아래 선택으로 서비스 내 권한만 활성화됩니다."
+        description={CHECKOUT_HINT}
       />
+
+      <div className="mb-4 flex flex-wrap items-center gap-2 rounded-xl border border-orange-200 bg-gradient-to-r from-orange-50 to-amber-50 px-3 py-2.5 dark:border-orange-900/50 dark:from-orange-950/40 dark:to-amber-950/30">
+        <span className="text-lg" aria-hidden>🔥</span>
+        <p className="text-[13px] font-semibold text-orange-900 dark:text-orange-100">
+          첫 구독 할인 적용 중 · 첫 달 ₩{FIRST_MONTH_PROMO_PRICE_KRW.toLocaleString()} (정가 월 ₩{STRATEGY_MONTHLY_PRICE_KRW.toLocaleString()} 참고)
+        </p>
+      </div>
 
       {(subscriptionFeedback?.ok || subscriptionFeedback?.err) && (
         <div
@@ -102,6 +114,11 @@ export default function PlansPage({
         <h3 className="text-[15px] font-bold text-slate-900 dark:text-slate-100">결제 반영 상태</h3>
         <p className="mt-1 text-[13px] leading-relaxed text-slate-600 dark:text-slate-400">
           결제 완료 후에는 서버 웹훅이 `user_plans.plan`을 갱신합니다. 프론트는 플랜을 직접 변경하지 않고 이 상태를 다시 조회해 반영합니다.
+        </p>
+        <p className="mt-3 rounded-lg border border-slate-200/80 bg-slate-50/80 px-3 py-2 text-[12px] leading-relaxed text-slate-600 dark:border-gray-700 dark:bg-gray-900/70 dark:text-slate-400">
+          본 플랫폼은 투자 자문을 제공하지 않으며,
+          <br />
+          모든 투자 판단과 책임은 사용자 본인에게 있습니다.
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
           <Button

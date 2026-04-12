@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate, useSearchParams, Link } from 'react-router-dom'
-import { signInWithPassword, signUpWithEmail, resetPasswordForEmail } from '../lib/authService'
+import { signInWithPassword, signUpWithEmail, resetPasswordForEmail, signInWithGoogle } from '../lib/authService'
 import { isSupabaseConfigured } from '../lib/supabase'
 import Button from '../components/ui/Button'
+import Logo from '../components/Logo'
 import Input from '../components/ui/Input'
 
 const VALID_MODES = new Set(['login', 'signup', 'forgot'])
@@ -153,6 +154,22 @@ export default function AuthPage() {
     }
   }
 
+  async function handleGoogleLogin() {
+    setError('')
+    setInfo('')
+    if (!isSupabaseConfigured()) {
+      setError('Supabase 환경변수가 설정되지 않았습니다.')
+      return
+    }
+    setLoading(true)
+    try {
+      await signInWithGoogle(safeNextPath(searchParams.get('next')))
+    } catch (err) {
+      setError(err?.message ?? 'Google 로그인에 실패했습니다.')
+      setLoading(false)
+    }
+  }
+
   const title =
     mode === 'signup' ? '회원가입' : mode === 'forgot' ? '비밀번호 찾기' : '로그인'
 
@@ -164,10 +181,7 @@ export default function AuthPage() {
             to="/"
             className="flex items-center gap-2 rounded-lg hover:opacity-90 transition-opacity"
           >
-            <div className="w-8 h-8 rounded-lg bg-slate-900 dark:bg-white flex items-center justify-center">
-              <span className="text-white dark:text-gray-900 font-bold text-sm font-mono">Q</span>
-            </div>
-            <span className="font-bold text-[15px] text-slate-900 dark:text-white">Quant Terminal</span>
+            <Logo size={28} textClassName="text-[15px]" />
           </Link>
           <Link
             to="/app/home"
@@ -186,6 +200,30 @@ export default function AuthPage() {
             {mode === 'signup' && '이메일과 비밀번호로 계정을 만듭니다.'}
             {mode === 'forgot' && '가입하신 이메일로 재설정 링크를 보내 드립니다.'}
           </p>
+
+          {(mode === 'login' || mode === 'signup') && (
+            <div className="mt-5">
+              <Button
+                variant="secondary"
+                size="lg"
+                className="w-full justify-center"
+                type="button"
+                disabled={loading}
+                onClick={handleGoogleLogin}
+              >
+                Google로 1초 로그인
+              </Button>
+              <p className="mt-1.5 text-center text-[12px] text-slate-500 dark:text-slate-400">
+                회원가입 없이 바로 시작
+              </p>
+            </div>
+          )}
+
+          {mode === 'login' && (
+            <p className="mt-3 text-center text-[12px] text-slate-500 dark:text-slate-400 leading-relaxed">
+              로그인 상태는 이 브라우저에 안전하게 유지됩니다. 다음에 방문해도 바로 이어서 이용할 수 있어요.
+            </p>
+          )}
 
           {error && (
             <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-800 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200">

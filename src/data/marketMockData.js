@@ -1,5 +1,6 @@
 import { STRATEGIES } from './mockData'
 import { normalizeMarketStrategy } from '../lib/marketStrategy'
+import { ARCHETYPE_LABEL, PROFILE_LABEL } from '../lib/strategyClassification'
 
 function safeNum(v, fb = 0) {
   const n = Number(v)
@@ -222,6 +223,7 @@ export const MARKET_STRATEGIES = STRATEGIES.map((s) => normalizeMarketStrategy({
 // ─────────────────────────────────────────
 // 필터 / 정렬 옵션
 // ─────────────────────────────────────────
+/** 레거시: 전략 원본 `type` 필드 (추세/횡보/돌파 등) */
 export const TYPE_OPTIONS = [
   { value: 'trend',          label: '추세' },
   { value: 'range',          label: '횡보' },
@@ -230,6 +232,18 @@ export const TYPE_OPTIONS = [
   { value: 'seasonal',       label: '계절성' },
   { value: 'divergence',     label: '다이버전스' },
 ]
+
+/** 분류 유형 (typeKey) — 홈·마켓 공통 */
+export const ARCHETYPE_OPTIONS = Object.entries(ARCHETYPE_LABEL).map(([value, label]) => ({
+  value,
+  label,
+}))
+
+/** 투자 성향 (profileKey) */
+export const PROFILE_OPTIONS = Object.entries(PROFILE_LABEL).map(([value, label]) => ({
+  value,
+  label,
+}))
 
 export const STATUS_OPTIONS = [
   { value: 'recommended', label: '추천' },
@@ -283,13 +297,23 @@ export const MARKET_ENV_OPTIONS = [
   { value: 'range', label: '횡보장' },
 ]
 
+/** 마켓 좌측 필터 — 시장 엔진 연동 (MarketPage에서 후처리) */
+export const MARKET_LENS_OPTIONS = [
+  { value: 'fit', label: '현재 시장 적합' },
+  { value: 'trend', label: '추세형 추천' },
+  { value: 'scalping', label: '단타형 추천' },
+]
+
 export const DEFAULT_FILTERS = {
   search:    '',
   types:     [],
+  archetype: [],
+  profile:   [],
   recommend: [],
   assets:    [],
   holdings:  [],
   marketEnv: [],
+  marketLens: [],
   roiMin:    '',
   recentRoiMin: '',
   winMin:    '',
@@ -303,7 +327,11 @@ export const DEFAULT_FILTERS = {
 // 클라이언트 필터링 함수
 // ─────────────────────────────────────────
 export function applyMarketFilters(strategies, filters) {
-  const { search, types, recommend, assets, holdings, marketEnv, roiMin, recentRoiMin, winMin, mddMax, tradesMin, priceMaxKrw, sort } = filters
+  const {
+    search, types, archetype, profile, recommend, assets, holdings, marketEnv,
+    roiMin, recentRoiMin, winMin, mddMax, tradesMin, priceMaxKrw, sort,
+  } = filters
+  /* marketLens는 MarketPage에서 시장 엔진과 함께 후처리 */
 
   const enriched = (strategies ?? []).map((s) => (
     s.recommendationScore != null && Number.isFinite(s.recommendationScore)
@@ -312,12 +340,28 @@ export function applyMarketFilters(strategies, filters) {
   ))
 
   const result = enriched.filter((s) => {
+    const keywordPool = [
+      s.name,
+      s.typeLabel,
+      s.profileLabel,
+      s.fitSummary,
+      s.strategy_summary,
+      s.summary,
+      s.description,
+      s.market_condition,
+      s.risk_description,
+    ]
+      .map((v) => String(v ?? '').toLowerCase())
+      .join(' ')
     if (
       search &&
-      !s.name.toLowerCase().includes(search.toLowerCase()) &&
-      !s.typeLabel.toLowerCase().includes(search.toLowerCase())
+      !keywordPool.includes(search.toLowerCase())
     ) return false
-    if (types.length     && !types.includes(s.type))                     return false
+    if (types.length && !types.includes(s.type)) return false
+    const arch = archetype ?? []
+    if (arch.length && !(arch.includes(s.typeKey))) return false
+    const prof = profile ?? []
+    if (prof.length && !(prof.includes(s.profileKey))) return false
     if (recommend.length && !recommend.includes(s.recommendBadge))        return false
     if (assets.length    && !assets.includes(s.assetType))                return false
     if (holdings.length  && !holdings.includes(s.holding))                return false

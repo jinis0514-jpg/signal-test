@@ -4,6 +4,14 @@ import { InAppNotificationProvider } from './context/InAppNotificationContext'
 import LandingPage from './pages/LandingPage'
 import AuthPage from './pages/AuthPage'
 import App from './App'
+import TermsPage from './pages/TermsPage'
+import PrivacyPage from './pages/PrivacyPage'
+import RefundPage from './pages/RefundPage'
+import DisclaimerPage from './pages/DisclaimerPage'
+import NoticePage from './pages/NoticePage'
+import SupportPage from './pages/SupportPage'
+import GuidePage from './pages/GuidePage'
+import FaqPage from './pages/FaqPage'
 
 class AppCrashBoundary extends Component {
   constructor(props) {
@@ -23,6 +31,9 @@ class AppCrashBoundary extends Component {
             <p className="text-[15px] font-bold">화면을 표시할 수 없습니다</p>
             <p className="mt-1 text-[12px] text-slate-500 dark:text-slate-400">
               임시 오류가 발생했습니다. 홈으로 이동하거나 새로고침해 주세요.
+            </p>
+            <p className="mt-1 text-[12px] text-slate-500 dark:text-slate-400">
+              문의가 필요하신가요? <a className="font-semibold hover:underline" href="mailto:support@bb-platform.com">support@bb-platform.com</a>
             </p>
             <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-300 break-words">
               {this.state.message}
@@ -59,6 +70,14 @@ export default function AppRoot() {
         <Routes>
           <Route path="/" element={<LandingPage />} />
           <Route path="/auth" element={<AuthPage />} />
+          <Route path="/terms" element={<TermsPage />} />
+          <Route path="/privacy" element={<PrivacyPage />} />
+          <Route path="/refund" element={<RefundPage />} />
+          <Route path="/disclaimer" element={<DisclaimerPage />} />
+          <Route path="/notice" element={<NoticePage />} />
+          <Route path="/support" element={<SupportPage />} />
+          <Route path="/faq" element={<FaqPage />} />
+          <Route path="/guide" element={<GuidePage />} />
           <Route path="/app" element={<Navigate to="/app/home" replace />} />
           <Route path="/app/:page" element={<App />} />
           <Route path="*" element={<Navigate to="/" replace />} />

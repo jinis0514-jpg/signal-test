@@ -26,7 +26,7 @@ function fmtTs(ms) {
   }
 }
 
-function SignalList({ signals }) {
+function SignalList({ signals, onRowClick }) {
   if (!signals.length) {
     return (
       <div className="px-4 py-7 text-center">
@@ -42,11 +42,24 @@ function SignalList({ signals }) {
         const isExit = s.type === 'EXIT'
         const isEntry = s.type === 'LONG' || s.type === 'SHORT'
 
+        const interactive = typeof onRowClick === 'function' && !isWait
+
         return (
           <div
             key={s.id}
+            role={interactive ? 'button' : undefined}
+            tabIndex={interactive ? 0 : undefined}
+            onClick={interactive ? () => onRowClick(s) : undefined}
+            onKeyDown={interactive ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                onRowClick(s)
+              }
+            } : undefined}
             className={cn(
-              'flex items-start gap-3 px-3.5 py-2.5',
+              'flex items-start gap-3 px-3.5 py-2.5 transition-colors',
+              interactive && 'cursor-pointer hover:bg-slate-50/60 dark:hover:bg-gray-800/35',
+              !interactive && 'hover:bg-slate-50/60 dark:hover:bg-gray-800/35',
               i < signals.length - 1 && 'border-b border-slate-100 dark:border-gray-800',
               isWait && 'opacity-60',
             )}
@@ -124,6 +137,7 @@ function SignalList({ signals }) {
 }
 
 function signalListEqual(prev, next) {
+  if (prev.onRowClick !== next.onRowClick) return false
   if (prev.signals === next.signals) return true
   const a = prev.signals
   const b = next.signals

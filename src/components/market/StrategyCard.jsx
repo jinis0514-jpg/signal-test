@@ -16,6 +16,7 @@ import { buildStrategyNarrative, CORE_TRUST_BADGE_KEYS } from '../../lib/strateg
 import { computeStrategyStatus } from '../../lib/strategyTrust'
 import VerificationBadge from '../verification/VerificationBadge'
 import { computeTrustScore, getTrustGrade } from '../../lib/strategyTrustScore'
+import { getStrategyLiveState } from '../../lib/strategyLiveState'
 
 function fmtReturn(v) {
   const n = Number(v)
@@ -131,15 +132,12 @@ function StrategyCard({
     return getTrustGrade(trustScore)
   }, [trustScore])
 
-  /* 현재 포지션 방향 (LONG / SHORT / 대기) */
-  const currentDir = (() => {
-    const d = strategy.recentSignals?.[0]?.dir ?? strategy.currentDir ?? null
-    if (!d) return null
-    const s = String(d).toUpperCase()
-    if (s === 'LONG' || s === 'BUY') return 'LONG'
-    if (s === 'SHORT' || s === 'SELL') return 'SHORT'
-    return null
-  })()
+  const liveState = useMemo(() => getStrategyLiveState(strategy), [strategy])
+  const badgeDir = liveState.kind === 'long_open'
+    ? 'LONG'
+    : liveState.kind === 'short_open'
+      ? 'SHORT'
+      : null
 
   const accessLockMessage = useMemo(() => {
     if (!isLocked || !strategy?.id) return PLAN_MESSAGES.marketMoreStrategies
@@ -161,7 +159,7 @@ function StrategyCard({
   }
 
   return (
-    <Card interactive className={cn('flex flex-col', className)}>
+    <Card interactive className={cn('group flex flex-col bb-strategy-surface bb-strategy-surface-interactive rounded-2xl', className)}>
 
       {/* 클릭 가능한 상단 콘텐츠 */}
       <div
@@ -182,19 +180,34 @@ function StrategyCard({
           {/* 1) 상단: 이름 + 핵심 배지 */}
           <div className="flex items-start justify-between gap-3 mb-3">
             <div className="min-w-0">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-xs font-bold text-slate-500">
-                  {trustGrade.grade}등급
-                </span>
-                <span className="text-xs text-slate-400">
-                  신뢰도 {trustScore}점
-                </span>
-              </div>
               <p className="text-[16px] font-bold text-slate-900 dark:text-slate-100 leading-tight truncate">
                 {strategy.name}
               </p>
+              <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                {isUserStrategy && <Badge variant="info">내 전략</Badge>}
+                {!isUserStrategy && recCfg && <Badge variant={recCfg.variant}>{recCfg.label}</Badge>}
+                <VerificationBadge
+                  level={strategy.verified_badge_level ?? 'backtest_only'}
+                  size="xs"
+                />
+                {!isMethod && (
+                  <Badge variant={riskVariant(riskStatus)}>
+                    {riskStatus}
+                  </Badge>
+                )}
+                {!isUserStrategy && statusCfg && <Badge variant={statusCfg.variant}>{statusCfg.label}</Badge>}
+                {isLocked && (
+                  <Badge variant="default">
+                    <Lock size={8} className="mr-0.5 inline-block" />
+                    잠금
+                  </Badge>
+                )}
+              </div>
               <p className="mt-0.5 text-[12px] text-slate-500 dark:text-slate-500 truncate">
                 {strategy.author}
+              </p>
+              <p className="mt-1 text-[10px] text-slate-400">
+                {trustGrade.grade}등급 · 신뢰도 {trustScore}점
               </p>
               {!isUserStrategy && Number(strategy.monthlyPriceKrw ?? strategy.monthly_price ?? 0) > 0 && (
                 <p className="mt-1 text-[13px] font-bold tabular-nums text-slate-800 dark:text-slate-100">
@@ -202,23 +215,10 @@ function StrategyCard({
                 </p>
               )}
             </div>
-            <div className="flex items-center gap-1.5 flex-wrap justify-end flex-shrink-0">
-              {isUserStrategy && <Badge variant="info">내 전략</Badge>}
-              {!isUserStrategy && recCfg && <Badge variant={recCfg.variant}>{recCfg.label}</Badge>}
-              <VerificationBadge
-                level={strategy.verified_badge_level ?? 'backtest_only'}
-                size="xs"
-              />
+            <div className="shrink-0 mt-0.5">
               {!isMethod && (
-                <Badge variant={riskVariant(riskStatus)}>
-                  {riskStatus}
-                </Badge>
-              )}
-              {!isUserStrategy && statusCfg && <Badge variant={statusCfg.variant}>{statusCfg.label}</Badge>}
-              {isLocked && (
-                <Badge variant="default">
-                  <Lock size={8} className="mr-0.5 inline-block" />
-                  잠금
+                <Badge variant={dirVariant(badgeDir)}>
+                  {badgeDir ?? liveState.shortLabel}
                 </Badge>
               )}
             </div>
@@ -259,7 +259,7 @@ function StrategyCard({
                   누적 수익률
                 </p>
                 <p className={cn(
-                  'text-[22px] font-bold tabular-nums leading-none',
+                  'text-[28px] font-bold tabular-nums leading-none tracking-tight',
                   Number.isFinite(ret) ? (ret >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400') : 'text-slate-700 dark:text-slate-300',
                 )}>
                   {fmtReturn(ret)}
@@ -342,10 +342,11 @@ function StrategyCard({
                 </div>
               </div>
 
-              {/* 현재 상태 */}
-              <Badge variant={dirVariant(currentDir)}>
-                {currentDir ?? '대기'}
-              </Badge>
+              <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                상태:
+                {' '}
+                {liveState.shortLabel}
+              </p>
             </div>
           )}
 
@@ -388,7 +389,15 @@ function StrategyCard({
       </div>
 
       {/* CTA 버튼 영역 */}
-      <div className="px-4 py-2.5 border-t border-slate-100 dark:border-gray-800 flex flex-wrap items-center gap-2 justify-end">
+      <div
+        className="px-4 py-2.5 border-t border-slate-100 dark:border-gray-800 flex flex-wrap items-center gap-2 justify-between cursor-pointer"
+        onClick={() => { pressFeedback(); handleCardClick() }}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { pressFeedback(); handleCardClick() }
+        }}
+      >
         {typeof onToggleCompare === 'function' && !isLocked && !isUserStrategy && (
           <Button
             variant={compared ? 'primary' : 'secondary'}
@@ -422,31 +431,32 @@ function StrategyCard({
             </Button>
           </div>
         ) : isUserStrategy ? (
-          <Button
-            variant="secondary" size="sm"
+          <button
+            type="button"
+            className="bb-strategy-cta"
             onClick={(e) => { e.stopPropagation(); onSimulate?.() }}
           >
-            {isMethod ? '연결 전략 실행' : '시그널 보기'}
-          </Button>
+            {isMethod ? '연결 전략 실행' : '시그널 보기'} <span className="transition-transform duration-200 group-hover:translate-x-1">→</span>
+          </button>
         ) : (
           <>
             {onDetail && (
-              <Button
-                variant="secondary"
-                size="sm"
+              <button
+                type="button"
+                className="bb-strategy-cta"
                 onClick={(e) => { e.stopPropagation(); onDetail() }}
               >
-                상세 보기
-              </Button>
+                상세 보기 <span className="transition-transform duration-200 group-hover:translate-x-1">→</span>
+              </button>
             )}
             {onSimulate && (
-              <Button
-                variant="primary"
-                size="sm"
+              <button
+                type="button"
+                className="bb-strategy-cta"
                 onClick={(e) => { e.stopPropagation(); onSimulate() }}
               >
-                {isMethod ? '연결 전략 실행' : '시그널 보기'}
-              </Button>
+                {isMethod ? '연결 전략 실행' : '시그널 보기'} <span className="transition-transform duration-200 group-hover:translate-x-1">→</span>
+              </button>
             )}
             <span
               role="status"

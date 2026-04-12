@@ -8,6 +8,7 @@ import ValidationPage from './pages/ValidationPage'
 import EditorPage     from './pages/EditorPage'
 import MyPage         from './pages/MyPage'
 import PlansPage      from './pages/PlansPage'
+import ExchangeConnectPage from './pages/ExchangeConnectPage'
 import EditorErrorBoundary from './components/editor/EditorErrorBoundary'
 import {
   INITIAL_USER,
@@ -50,7 +51,7 @@ import {
 } from './lib/strategyNotificationSettings'
 
 const VALID_APP_PAGES = new Set([
-  'home', 'market', 'signal', 'validation', 'editor', 'mypage', 'admin', 'plans',
+  'home', 'market', 'signal', 'validation', 'editor', 'mypage', 'admin', 'plans', 'exchange',
 ])
 
 const LS_USER     = 'bb_user'
@@ -96,6 +97,10 @@ export default function App() {
   }
 
   useEffect(() => {
+    if (pageParam === 'autopilot') {
+      navigate('/app/home', { replace: true })
+      return
+    }
     if (!VALID_APP_PAGES.has(pageParam)) {
       navigate('/app/home', { replace: true })
     }
@@ -1002,6 +1007,15 @@ export default function App() {
               userPlanKind={user?.plan ?? 'free'}
               onSubscribe={handleSubscribe}
               onStartTrial={handleStartTrial}
+            />
+          </EditorErrorBoundary>
+        )
+      case 'exchange':
+        return (
+          <EditorErrorBoundary>
+            <ExchangeConnectPage
+              onNavigate={setPage}
+              currentUser={currentUser}
             />
           </EditorErrorBoundary>
         )

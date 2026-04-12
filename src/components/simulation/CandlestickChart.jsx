@@ -107,9 +107,19 @@ function CandlestickChart({
           candles={candles}
           markers={chartMarkers}
           priceLineOverlays={priceLineOverlays}
-          openEntry={strategySignalBundles?.length || strategyOverlays?.length ? null : openEntry}
+          openEntry={
+            strategySignalBundles?.length || strategyOverlays?.length
+            || (Array.isArray(priceLineOverlays) && priceLineOverlays.length > 0)
+              ? null
+              : openEntry
+          }
           openDir={openDir}
-          emphasizeOpen={emphasizeOpen && !strategySignalBundles?.length && !strategyOverlays?.length}
+          emphasizeOpen={
+            emphasizeOpen
+            && !strategySignalBundles?.length
+            && !strategyOverlays?.length
+            && !(Array.isArray(priceLineOverlays) && priceLineOverlays.length > 0)
+          }
           watermark={strategyName ?? ''}
           showVolume
           isDark={isDark}
