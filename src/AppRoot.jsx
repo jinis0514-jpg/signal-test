@@ -12,6 +12,7 @@ import NoticePage from './pages/NoticePage'
 import SupportPage from './pages/SupportPage'
 import GuidePage from './pages/GuidePage'
 import FaqPage from './pages/FaqPage'
+import DesignTestPage from './pages/DesignTestPage'
 
 class AppCrashBoundary extends Component {
   constructor(props) {
@@ -78,6 +79,7 @@ export default function AppRoot() {
           <Route path="/support" element={<SupportPage />} />
           <Route path="/faq" element={<FaqPage />} />
           <Route path="/guide" element={<GuidePage />} />
+          <Route path="/design-test" element={<DesignTestPage />} />
           <Route path="/app" element={<Navigate to="/app/home" replace />} />
           <Route path="/app/:page" element={<App />} />
           <Route path="*" element={<Navigate to="/" replace />} />
