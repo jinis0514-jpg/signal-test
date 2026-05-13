@@ -60,6 +60,30 @@ export default function DesignTestPage() {
             이미지 로드 실패 시 AvatarFallback이 표시됩니다.
           </CardFooter>
         </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>디자인 토큰</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="bg-bg-surface-1 p-4 rounded-xl border border-border-default">
+                <p className="text-text-primary">Surface 1</p>
+              </div>
+              <div className="bg-bg-surface-2 p-4 rounded-xl">
+                <p className="text-text-primary">Surface 2</p>
+              </div>
+              <div className="bg-brand p-4 rounded-xl">
+                <p className="text-white">Brand</p>
+              </div>
+            </div>
+            <div className="mt-4 flex gap-4">
+              <span className="text-long">+12.34% (long)</span>
+              <span className="text-short">-3.21% (short)</span>
+              <span className="text-verified">✓ VERIFIED</span>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </div>
   )
