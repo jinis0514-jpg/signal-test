@@ -1,9 +1,10 @@
 import { useNavigate } from 'react-router-dom'
-import { Sun, Moon, Home, BarChart3, LineChart, FlaskConical, Code2, UserCircle2, ShieldCheck } from 'lucide-react'
+import { Home, BarChart3, LineChart, FlaskConical, Code2, UserCircle2, ShieldCheck } from 'lucide-react'
 import NotificationDropdown from './NotificationDropdown'
 import { cn } from '../../lib/cn'
 import Logo from '../Logo'
 import { getPlanLabel } from '../../lib/userPlan'
+import ThemeToggle from '../ui/ThemeToggle'
 
 const NAV_ITEMS = [
   { id: 'home',       label: '홈',        icon: Home         },
@@ -129,20 +130,7 @@ export default function Topbar({
             onNavigate={onNavigate}
             onNotificationNavigate={onNotificationNavigate}
           />
-
-          <button
-            type="button"
-            onClick={onToggleDark}
-            className="w-8 h-8 flex items-center justify-center rounded-lg
-              text-gray-400 hover:text-gray-700 hover:bg-gray-100
-              dark:text-gray-600 dark:hover:text-gray-300 dark:hover:bg-gray-800
-              transition-[color,background-color] duration-[120ms]"
-            aria-label={isDark ? '라이트 모드' : '다크 모드'}
-          >
-            {isDark
-              ? <Sun size={14} strokeWidth={1.8} />
-              : <Moon size={14} strokeWidth={1.8} />}
-          </button>
+          <ThemeToggle onToggleDark={onToggleDark} />
         </div>
 
         {/* 로그인 / 회원가입 UI */}
