@@ -1,19 +1,9 @@
 import { useNavigate } from 'react-router-dom'
-import { Home, BarChart3, LineChart, FlaskConical, Code2, UserCircle2, ShieldCheck } from 'lucide-react'
+import { Search } from 'lucide-react'
 import NotificationDropdown from './NotificationDropdown'
-import { cn } from '../../lib/cn'
-import Logo from '../Logo'
 import { getPlanLabel } from '../../lib/userPlan'
 import ThemeToggle from '../ui/ThemeToggle'
-
-const NAV_ITEMS = [
-  { id: 'home',       label: '홈',        icon: Home         },
-  { id: 'market',     label: '전략마켓',   icon: BarChart3    },
-  { id: 'signal',     label: '시그널',     icon: LineChart    },
-  { id: 'validation', label: '검증',      icon: FlaskConical },
-  { id: 'editor',     label: '에디터',    icon: Code2        },
-  { id: 'mypage',     label: '마이페이지', icon: UserCircle2  },
-]
+import Input from '../ui/Input'
 
 const PLAN_STYLE = {
   free:       'text-slate-500 dark:text-slate-400 font-semibold',
@@ -54,65 +44,20 @@ export default function Topbar({
     <header className="
       h-12 flex-shrink-0
       flex items-center min-w-0
-      px-3 sm:px-5 gap-2 sm:gap-4
+      px-3 sm:px-5 gap-3
       bg-white dark:bg-gray-900
       border-b border-slate-200/70 dark:border-gray-800
-      z-50 overflow-x-auto overflow-y-hidden
+      z-50
     ">
-      {/* 로고 → 랜딩 */}
-      <button
-        type="button"
-        onClick={() => onLandingNavigate?.()}
-        className="flex items-center gap-2.5 flex-shrink-0 rounded-lg hover:opacity-90 transition-opacity text-left"
-        title="랜딩 페이지"
-      >
-        <Logo size={28} className="gap-2.5" textClassName="text-[14px] whitespace-nowrap" />
-      </button>
-
-      {/* 구분선 */}
-      <div className="w-px h-4 bg-gray-200 dark:bg-gray-800 flex-shrink-0" />
-
-      {/* 전역 네비게이션 */}
-      <nav className="flex items-center gap-0.5 flex-1 min-w-0 overflow-x-auto [&::-webkit-scrollbar]:hidden">
-        {NAV_ITEMS.map(({ id, label, icon: Icon }) => {
-          const isActive = currentPage === id
-          return (
-            <button
-              key={id}
-              onClick={() => onNavigate(id)}
-              className={[
-                'flex items-center gap-1.5 px-3 h-8 text-[13px] font-medium rounded-lg transition-colors whitespace-nowrap border',
-                isActive
-                  ? 'bg-slate-100 text-slate-900 border-slate-200/80 dark:bg-gray-800 dark:text-slate-100 dark:border-gray-700'
-                  : 'border-transparent text-slate-500 hover:bg-slate-50 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-gray-800/60 dark:hover:text-slate-200',
-              ].join(' ')}
-              aria-current={isActive ? 'page' : undefined}
-            >
-              <Icon size={13} strokeWidth={isActive ? 2.2 : 1.8} className="flex-shrink-0" />
-              <span>{label}</span>
-            </button>
-          )
-        })}
-
-        {/* 관리자 전용 메뉴 */}
-        {isAdmin && (
-          <>
-            <div className="w-px h-4 bg-gray-200 dark:bg-gray-800 mx-1" />
-            <button
-              onClick={() => onNavigate('admin')}
-              className={[
-                'flex items-center gap-1.5 px-3 h-8 text-[12px] font-medium rounded-lg transition-colors whitespace-nowrap',
-                currentPage === 'admin'
-                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300'
-                  : 'text-amber-600 hover:bg-amber-50 dark:text-amber-500 dark:hover:bg-amber-950/30',
-              ].join(' ')}
-            >
-              <ShieldCheck size={13} strokeWidth={currentPage === 'admin' ? 2.2 : 1.8} className="flex-shrink-0" />
-              <span>검수 관리</span>
-            </button>
-          </>
-        )}
-      </nav>
+      <div className="flex-1 min-w-0">
+        <div className="max-w-[420px] w-full">
+          <Input
+            icon={<Search size={12} strokeWidth={1.9} />}
+            placeholder="검색"
+            aria-label="검색"
+          />
+        </div>
+      </div>
 
       {/* 우측 유틸리티 */}
       <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0 min-w-0">
