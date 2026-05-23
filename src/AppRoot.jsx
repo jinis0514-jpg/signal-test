@@ -13,6 +13,7 @@ import SupportPage from './pages/SupportPage'
 import GuidePage from './pages/GuidePage'
 import FaqPage from './pages/FaqPage'
 import DesignTestPage from './pages/DesignTestPage'
+import TraderProfilePage from './pages/TraderProfilePage'
 
 class AppCrashBoundary extends Component {
   constructor(props) {
@@ -80,6 +81,7 @@ export default function AppRoot() {
           <Route path="/faq" element={<FaqPage />} />
           <Route path="/guide" element={<GuidePage />} />
           <Route path="/design-test" element={<DesignTestPage />} />
+          <Route path="/u/:handle" element={<TraderProfilePage />} />
           <Route path="/app" element={<Navigate to="/app/home" replace />} />
           <Route path="/app/:page" element={<App />} />
           <Route path="*" element={<Navigate to="/" replace />} />
