@@ -96,7 +96,7 @@ export function useTraderProfile(handle) {
         if (!cancelled) setViewerId(uid)
 
         const { data: row, error: profileError } = await supabase
-          .from('profiles')
+          .from('public_profiles')
           .select('id,handle,nickname,avatar_url,banner_url,bio,style_tags,is_trader,trader_verified_at,follower_count,following_count,post_count,total_likes,created_at')
           .ilike('handle', safeHandle)
           .maybeSingle()
