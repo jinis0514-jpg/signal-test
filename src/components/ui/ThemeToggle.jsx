@@ -2,7 +2,7 @@ import { Moon, Sun } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { useTheme } from '../../hooks/useTheme'
 
-export default function ThemeToggle({ className, onToggleDark }) {
+export default function ThemeToggle({ className }) {
   const { theme, toggleTheme } = useTheme()
   const isDark = theme === 'dark'
 
@@ -11,7 +11,6 @@ export default function ThemeToggle({ className, onToggleDark }) {
       type="button"
       onClick={() => {
         toggleTheme()
-        onToggleDark?.()
       }}
       className={cn(
         'w-8 h-8 flex items-center justify-center rounded-lg',
